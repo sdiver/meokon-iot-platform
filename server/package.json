@@ -1,0 +1,21 @@
+{
+  "name": "meokon-iot-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "simulate": "node scripts/simulator.js",
+    "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js"
+  },
+  "dependencies": {
+    "aedes": "^1.2.0",
+    "express": "^5.3.0",
+    "mqtt": "^5.16.1"
+  }
+}

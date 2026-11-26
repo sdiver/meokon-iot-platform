@@ -1,0 +1,16 @@
+{
+  "name": "meokon-iot-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MEOKON 智能无线终端（协议 V3.3）物联网设备监测平台",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix web install",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix server start",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev",
+    "test": "npm --prefix server test",
+    "seed": "npm --prefix server run seed",
+    "simulate": "npm --prefix server run simulate --"
+  }
+}

@@ -1,0 +1,18 @@
+services:
+  platform:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"      # Web / API / 第三方推送
+      - "9000:9000"      # 设备 TCP
+      - "9001:9001/udp"  # 设备 UDP
+      - "1883:1883"      # 内置 MQTT Broker
+    environment:
+      TZ_OFFSET_HOURS: 8
+      # AUTH_TOKEN: change-me        # 开启 Web/API 访问令牌
+      # PUSH_TOKEN: change-me        # 第三方推送接口校验
+      # MQTT_URL: mqtt://broker:1883 # 使用外部 Broker（同时可设 MQTT_BROKER_PORT=0 关闭内置）
+    volumes:
+      - iot-data:/data
+volumes:
+  iot-data:
