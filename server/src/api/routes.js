@@ -31,7 +31,7 @@ export function extractPayload(v) {
   return null;
 }
 
-export function createApi({ config, ingest, query, stats, bus, transports }) {
+export function createApi({ config, ingest, query, stats, bus, transports, settings }) {
   const api = express.Router();
   api.use(express.json({ limit: '2mb' }));
 
@@ -54,9 +54,36 @@ export function createApi({ config, ingest, query, stats, bus, transports }) {
       tzOffsetHours: config.tzOffsetHours,
       offlineMinSec: config.offlineMinSec,
       offlineFactor: config.offlineFactor,
-      transports: transports(),
+      transports: transports.status(),
     });
   });
+
+  // ---------- 系统设置 ----------
+  const settingsView = () => ({ ...settings.list(), transports: transports.status() });
+  api.get('/settings', (req, res) => res.json(settingsView()));
+  api.put('/settings', wrap(async (req, res) => {
+    const { changed, applyGroups } = settings.update(req.body || {});
+    const restart = [...applyGroups].filter((g) => g !== 'runtime');
+    if (restart.length) await transports.restart(restart);
+    res.json({ ...settingsView(), changed, restarted: restart });
+  }));
+  api.post('/settings/reset', wrap(async (req, res) => {
+    const { changed, applyGroups } = settings.reset(req.body?.keys);
+    const restart = [...applyGroups].filter((g) => g !== 'runtime');
+    if (restart.length) await transports.restart(restart);
+    res.json({ ...settingsView(), changed, restarted: restart });
+  }));
+
+  // ---------- 数据管理 ----------
+  api.get('/admin/data-summary', wrap((req, res) => res.json(query.dataSummary())));
+  api.post('/admin/purge', wrap((req, res) => {
+    const { scope, confirm } = req.body || {};
+    if (confirm !== '确认清空') return res.status(400).json({ error: '请输入“确认清空”以继续' });
+    if (scope !== 'all' && scope !== 'data') return res.status(400).json({ error: 'scope 必须为 all 或 data' });
+    const r = query.purge(scope);
+    bus.emit('frame', { purge: true, at: Date.now(), ok: true });
+    res.json({ ok: true, ...r });
+  }));
 
   // ---------- 字典 ----------
   api.get('/device-types', (req, res) => res.json(listDeviceTypes()));

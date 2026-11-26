@@ -10,6 +10,8 @@
 - **报警中心**：按报警位生成报警事件，自动恢复，支持确认与处理说明，实时弹窗提醒
 - **下行命令**：命令队列，随下次上报的应答帧下发（TCP/UDP/MQTT），记录设备 0x04 应答
 - **实时推送**：SSE 推送新报文与报警，页面自动刷新
+- **系统设置**：在页面上修改接入端口、MQTT（内置 Broker 设备认证 / 外部 Broker）、在线判定、数据保留、访问令牌等，保存即生效（接入服务自动热重启，无需重启平台）；数据管理可一键清空演示数据
+- **手机适配**：手机浏览器自动切换为底部导航 + 卡片列表布局，可“添加到主屏幕”像 App 一样使用
 
 ## 快速开始
 
@@ -65,16 +67,26 @@ docker compose up -d --build
 | 移动 OneNET | `GET/POST /api/push/onenet` | GET 用于 URL 验证；`msg.value` 为十六进制报文 |
 | 通用 HTTP | `POST /api/push/raw` | `{"hex":"a55a..."}` 或 `{"base64":"..."}` |
 
+## 从演示切换到正式运行
+
+1. 停止设备模拟器（`npm run simulate` 只用于演示）。
+2. 打开【系统设置】→ 数据管理 →“清空全部（含设备档案）”，删除演示数据。
+3. 在【系统设置】中按实际情况修改接入端口、MQTT 用户名密码、访问令牌等，保存即生效。
+4. 将设备的服务器地址指向平台所在服务器 IP 和对应端口；设备首次上报后自动出现在设备列表中，可再编辑名称、位置和分组。
+
 ## 配置（环境变量）
+
+以下环境变量为默认值；【系统设置】页面中修改的值保存在数据库中，优先于环境变量，可随时“恢复默认”。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `HTTP_PORT` | 8080 | Web/API 端口 |
 | `TCP_PORT` / `UDP_PORT` | 9000 / 9001 | 设备接入端口 |
 | `TCP_ENABLED` / `UDP_ENABLED` | true | 是否启用 |
-| `MQTT_BROKER_PORT` | 1883 | 内置 Broker 端口，0 关闭 |
+| `MQTT_BROKER_ENABLED` / `MQTT_BROKER_PORT` | true / 1883 | 内置 Broker（端口设为 0 同样表示关闭） |
+| `MQTT_BROKER_USERNAME` / `MQTT_BROKER_PASSWORD` | 空 | 设备连接内置 Broker 的认证，为空不校验 |
 | `MQTT_URL` | 空 | 外部 Broker，如 `mqtt://host:1883`（为空时连接内置 Broker） |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | 空 | Broker 认证（内置 Broker 同样生效） |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | 空 | 平台连接外部 Broker 的认证 |
 | `MQTT_UPLINK_TOPIC` / `MQTT_DOWNLINK_PREFIX` | `GIOT-GW/UL/#` / `GIOT-GW/DL/` | 主题 |
 | `DB_FILE` | `server/data/iot.db` | SQLite 数据文件 |
 | `FRAME_RETENTION_DAYS` | 90 | 原始报文保留天数，0 永久 |
@@ -103,7 +115,7 @@ server/
   src/transports/ TCP / UDP / MQTT
   src/api/        REST API、第三方推送、SSE
   scripts/        设备模拟器、演示数据生成
-  test/           协议与端到端测试（npm test）
+  test/           协议、端到端与设置测试（npm test）
 web/              Vue 3 + Element Plus + ECharts 前端
 ```
 
@@ -123,3 +135,5 @@ web/              Vue 3 + Element Plus + ECharts 前端
 | `GET /api/stats/overview` `trend` `hourly` `alarms` `types` `activity` | 统计 |
 | `POST /api/tools/decode`、`/api/tools/downlink` | 报文解析 / 生成下行帧 |
 | `GET /api/stream` | SSE 实时事件（frame / alarm / command） |
+| `GET/PUT /api/settings`、`POST /api/settings/reset` | 系统设置读取 / 修改 / 恢复默认 |
+| `GET /api/admin/data-summary`、`POST /api/admin/purge` | 数据统计 / 清空（需 `{"scope":"all或data","confirm":"确认清空"}`） |

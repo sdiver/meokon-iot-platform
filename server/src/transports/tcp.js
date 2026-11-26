@@ -1,11 +1,12 @@
 import net from 'node:net';
 import { FrameStreamParser } from '../protocol/streamParser.js';
+import { listenAsync } from './listen.js';
 
 /**
  * 1.1 TCP：设备为 socket 客户端，上报后平台需 5 秒内下发应答；
  * 设备上报后 5 秒内无新数据，平台主动断开连接。
  */
-export function startTcpServer({ port, ingest, logger, idleCloseMs = 5000 }) {
+export async function startTcpServer({ port, ingest, logger, idleCloseMs = () => 5000 }) {
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -14,7 +15,7 @@ export function startTcpServer({ port, ingest, logger, idleCloseMs = 5000 }) {
     let timer = null;
     const armIdle = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => socket.end(), idleCloseMs);
+      timer = setTimeout(() => socket.end(), idleCloseMs());
     };
     armIdle();
     socket.on('data', (chunk) => {
@@ -38,7 +39,8 @@ export function startTcpServer({ port, ingest, logger, idleCloseMs = 5000 }) {
       sockets.delete(socket);
     });
   });
-  server.listen(port, () => logger.info(`[tcp] 设备接入端口 ${port}`));
+  await listenAsync(server, port);
+  logger.info(`[tcp] 设备接入端口 ${port}`);
   return {
     server,
     close: () => new Promise((r) => {

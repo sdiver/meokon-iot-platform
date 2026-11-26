@@ -1,6 +1,6 @@
 <template>
-  <el-dialog v-model="visible" :title="`编辑设备 ${form.id}`" width="480px" append-to-body>
-    <el-form :model="form" label-width="80px">
+  <el-dialog v-model="visible" :title="`编辑设备 ${form.id}`" :width="isMobile ? '94%' : '480px'" :fullscreen="false" append-to-body>
+    <el-form :model="form" :label-position="isMobile ? 'top' : 'right'" label-width="80px">
       <el-form-item label="名称"><el-input v-model="form.name" maxlength="50" /></el-form-item>
       <el-form-item label="安装位置"><el-input v-model="form.location" maxlength="100" /></el-form-item>
       <el-form-item label="分组"><el-input v-model="form.groupName" maxlength="50" placeholder="例如：供水管网" /></el-form-item>
@@ -9,9 +9,7 @@
       <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-popconfirm title="删除设备档案？（历史数据保留，设备再次上报会重新注册）" width="260" @confirm="remove">
-        <template #reference><el-button type="danger" plain style="float: left">删除</el-button></template>
-      </el-popconfirm>
+      <el-button type="danger" plain style="float: left" @click="remove">删除</el-button>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="save">保存</el-button>
     </template>
@@ -19,9 +17,10 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
+import { ref, reactive, h } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox, ElCheckbox } from 'element-plus';
+import { isMobile } from '../utils/responsive.js';
 import { api } from '../api.js';
 
 const emit = defineEmits(['saved']);
@@ -47,7 +46,16 @@ async function save() {
   }
 }
 async function remove() {
-  await api.deleteDevice(form.id);
+  const purge = ref(true);
+  await ElMessageBox({
+    title: `删除设备 ${form.id}`,
+    message: () => h('div', [
+      h('p', { style: 'margin:0 0 10px' }, '删除后设备再次上报会自动重新登记。'),
+      h(ElCheckbox, { modelValue: purge.value, 'onUpdate:modelValue': (v) => { purge.value = v; } }, () => '同时删除该设备的采集数据、报文、报警和命令'),
+    ]),
+    showCancelButton: true, confirmButtonText: '删除', confirmButtonClass: 'el-button--danger', type: 'warning',
+  });
+  await api.deleteDevice(form.id, purge.value);
   visible.value = false;
   ElMessage.success('已删除');
   emit('saved', null);

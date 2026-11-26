@@ -67,3 +67,37 @@ a.link:hover { text-decoration: underline; }
 .dot.warning { background: var(--warning); }
 
 .el-table { --el-table-bg-color: var(--card-bg); --el-table-tr-bg-color: var(--card-bg); --el-table-header-bg-color: var(--card-bg); }
+
+/* ---------- 手机适配 ---------- */
+.m-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card { padding: 12px 14px; border-radius: 12px; -webkit-tap-highlight-color: transparent; }
+.m-card:active { background: var(--page-bg); }
+.m-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.m-row > .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-sub { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.m-more-btn { width: 100%; margin-top: 10px; }
+.m-notify { width: calc(100% - 24px) !important; left: 12px !important; }
+
+@media (max-width: 768px) {
+  .page { padding: 12px 12px 16px; }
+  .page-head { margin-bottom: 12px; }
+  .page-head h2 { font-size: 18px; }
+  /* 顶部栏已显示页面标题，列表类页面不再重复 */
+  .page-head:not(.keep-title) h2 { display: none; }
+  .page-head:not(.keep-title) > div:first-child:has(> .sub:only-of-type) .sub { margin-top: 0; }
+  .page-head .sub { font-size: 12px; }
+  .card { padding: 12px; border-radius: 12px; }
+  .card-title { font-size: 14px; margin-bottom: 8px; }
+  .grid { gap: 10px; }
+  .mt { margin-top: 10px; }
+  .grid.tiles, .grid.c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { gap: 6px; }
+  .filters > * { flex: 1 1 calc(50% - 6px); min-width: 0; width: auto !important; margin-left: 0 !important; }
+  .filters > .el-button { flex: 0 0 auto; }
+  .filters > .el-radio-group { flex: 1 1 100%; }
+  .pager { justify-content: center; }
+  .el-descriptions__label { white-space: nowrap; }
+  .el-message-box { max-width: calc(100vw - 32px); }
+  .el-drawer.rtl { width: 100% !important; }
+  .el-tabs__item { padding: 0 12px !important; }
+}

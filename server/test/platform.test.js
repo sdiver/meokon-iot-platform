@@ -11,7 +11,7 @@ import { crc16Modbus } from '../src/protocol/crc16.js';
 const silent = { info() {}, warn() {}, error() {} };
 const base = 20000 + Math.floor(Math.random() * 20000);
 const config = {
-  httpPort: base, tcpPort: base + 1, udpPort: base + 2, mqttBrokerPort: base + 3,
+  httpPort: base, tcpPort: base + 1, udpPort: base + 2, mqttBrokerPort: base + 3, mqttBrokerEnabled: true, mqttBrokerUsername: '', mqttBrokerPassword: '', mqttUsername: '', mqttPassword: '',
   tcpEnabled: true, udpEnabled: true, tcpIdleCloseMs: 5000,
   mqttUrl: '', mqttUplinkTopic: 'GIOT-GW/UL/#', mqttDownlinkPrefix: 'GIOT-GW/DL/',
   dbFile: ':memory:', frameRetentionDays: 0, readingRetentionDays: 0,

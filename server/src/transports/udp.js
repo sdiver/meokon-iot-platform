@@ -1,8 +1,9 @@
 import dgram from 'node:dgram';
 import { FrameStreamParser } from '../protocol/streamParser.js';
+import { portError } from './listen.js';
 
 /** 1.1 UDP：每个数据报包含一帧或多帧二进制数据，平台回复下行应答 */
-export function startUdpServer({ port, ingest, logger }) {
+export async function startUdpServer({ port, ingest, logger }) {
   const sock = dgram.createSocket('udp4');
   sock.on('message', (msg, rinfo) => {
     const remote = `${rinfo.address}:${rinfo.port}`;
@@ -20,7 +21,15 @@ export function startUdpServer({ port, ingest, logger }) {
       }
     }
   });
+  await new Promise((resolve, reject) => {
+    const onError = (e) => reject(portError(e, port));
+    sock.once('error', onError);
+    sock.bind(port, () => {
+      sock.off('error', onError);
+      resolve();
+    });
+  });
   sock.on('error', (e) => logger.error('[udp] error', e));
-  sock.bind(port, () => logger.info(`[udp] 设备接入端口 ${port}`));
+  logger.info(`[udp] 设备接入端口 ${port}`);
   return { socket: sock, close: () => new Promise((r) => sock.close(() => r())) };
 }

@@ -9,7 +9,8 @@ const routes = [
   { path: '/frames', name: 'frames', component: () => import('./views/Frames.vue'), meta: { title: '报文日志', icon: 'Tickets' } },
   { path: '/decoder', name: 'decoder', component: () => import('./views/Decoder.vue'), meta: { title: '报文解析', icon: 'Operation' } },
   { path: '/types', name: 'types', component: () => import('./views/DeviceTypes.vue'), meta: { title: '设备类型', icon: 'Collection' } },
-  { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: '接入配置', icon: 'Setting' } },
+  { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', icon: 'Setting' } },
+  { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: '接入说明', icon: 'Guide' } },
 ];
 
 const router = createRouter({ history: createWebHashHistory(), routes });

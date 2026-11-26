@@ -27,7 +27,28 @@
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </div>
 
-      <el-table :data="data.items" v-loading="loading" @row-click="(r) => $router.push(`/devices/${r.id}`)" row-class-name="clickable" empty-text="暂无设备，等待设备上报">
+      <div v-if="isMobile" class="m-list" v-loading="loading">
+        <div v-for="row in data.items" :key="row.id" class="card m-card" @click="$router.push(`/devices/${row.id}`)">
+          <div class="m-row">
+            <b class="grow">{{ row.name || row.id }}</b>
+            <DeviceStatus :status="row.status" />
+          </div>
+          <div class="m-sub"><span class="mono">{{ row.id }}</span> · {{ row.typeName }}</div>
+          <div class="m-vals">
+            <div v-for="v in mainValues(row)" :key="v.k" class="m-val">
+              <div class="muted">{{ v.name }}</div>
+              <div><b class="num">{{ v.text }}</b> <span class="muted">{{ v.unit }}</span></div>
+            </div>
+          </div>
+          <div v-if="row.alarm.bits.length" class="alarm-txt"><span class="dot critical" />{{ row.alarm.bits.map((b) => b.label).join('、') }}</div>
+          <div class="m-row m-foot">
+            <BatterySignal :battery="row.battery" :signal="row.signal" />
+            <span class="muted small">{{ fmtAgo(row.lastSeen) }}</span>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !data.items.length" description="暂无设备，等待设备上报" />
+      </div>
+      <el-table v-else :data="data.items" v-loading="loading" @row-click="(r) => $router.push(`/devices/${r.id}`)" row-class-name="clickable" empty-text="暂无设备，等待设备上报">
         <el-table-column label="状态" width="80"><template #default="{ row }"><DeviceStatus :status="row.status" /></template></el-table-column>
         <el-table-column label="设备编号 / 名称" min-width="170">
           <template #default="{ row }">
@@ -63,7 +84,7 @@
         </el-table-column>
       </el-table>
       <div class="pager">
-        <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @change="load" />
+        <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next'" :pager-count="isMobile ? 5 : 7" :size="isMobile ? 'small' : 'default'" @change="load" />
       </div>
     </div>
 
@@ -72,6 +93,7 @@
 </template>
 
 <script setup>
+import { isMobile } from '../utils/responsive.js';
 defineOptions({ name: 'Devices' });
 import { ref, reactive, computed, onMounted, onActivated } from 'vue';
 import { useRoute } from 'vue-router';
@@ -123,5 +145,10 @@ onActivated(() => {
 .small { font-size: 12px; }
 .val { white-space: nowrap; font-size: 13px; }
 .alarm-txt { color: var(--critical); font-size: 13px; white-space: nowrap; }
+.m-vals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 8px; }
+.m-val { font-size: 12px; min-width: 0; }
+.m-val b { font-size: 16px; }
+.m-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hair); }
+.m-card .alarm-txt { white-space: normal; margin-bottom: 2px; }
 :deep(.clickable) { cursor: pointer; }
 </style>

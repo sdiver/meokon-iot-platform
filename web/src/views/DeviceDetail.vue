@@ -1,8 +1,8 @@
 <template>
   <div class="page" v-if="dev">
-    <div class="page-head">
+    <div class="page-head keep-title">
       <div>
-        <h2><el-button link :icon="ArrowLeft" @click="$router.back()" aria-label="返回" /> {{ dev.name || dev.id }} <DeviceStatus :status="dev.status" class="st" /></h2>
+        <h2><el-button v-if="!isMobile" link :icon="ArrowLeft" @click="$router.back()" aria-label="返回" /> {{ dev.name || dev.id }} <DeviceStatus :status="dev.status" class="st" /></h2>
         <div class="sub"><span class="mono">{{ dev.id }}</span> · {{ dev.typeName }}（类型 {{ dev.typeCode }}）<template v-if="dev.location"> · {{ dev.location }}</template></div>
       </div>
       <div>
@@ -84,7 +84,7 @@
         <div class="grid" :class="chartGroups.length > 1 ? 'c2' : ''">
           <div v-for="g in chartGroups" :key="g.unit" class="card">
             <div class="card-title">{{ g.params.map((p) => p.name).join(' / ') }}<span class="hint">{{ g.unit }}</span></div>
-            <VChart :option="g.option" :height="300" :label="g.params.map((p) => p.name).join('、') + '历史曲线'" />
+            <VChart :option="g.option" :height="isMobile ? 240 : 300" :label="g.params.map((p) => p.name).join('、') + '历史曲线'" />
           </div>
         </div>
       </el-tab-pane>
@@ -132,7 +132,7 @@
             <el-table-column label="报警" width="80"><template #default="{ row }">{{ row.alarmRaw ? hex(row.alarmRaw) : '' }}</template></el-table-column>
           </el-table>
           <div class="pager">
-            <el-pagination v-model:current-page="rdQ.page" v-model:page-size="rdQ.size" :total="rd.total" :page-sizes="[50, 100, 200]" layout="total, sizes, prev, pager, next" @change="loadReadings" />
+            <el-pagination v-model:current-page="rdQ.page" v-model:page-size="rdQ.size" :total="rd.total" :page-sizes="[50, 100, 200]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next'" :pager-count="isMobile ? 5 : 7" :size="isMobile ? 'small' : 'default'" @change="loadReadings" />
           </div>
         </div>
       </el-tab-pane>
@@ -182,6 +182,7 @@
 </template>
 
 <script setup>
+import { isMobile } from '../utils/responsive.js';
 import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';

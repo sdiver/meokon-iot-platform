@@ -20,4 +20,9 @@ defineProps({ label: String, value: [String, Number], unit: String, sub: String,
 .value { font-size: 28px; font-weight: 600; margin-top: 6px; line-height: 1.2; }
 .unit { font-size: 13px; font-weight: 400; color: var(--ink-2); margin-left: 4px; }
 .sub { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+@media (max-width: 768px) {
+  .tile { padding: 10px 12px; }
+  .value { font-size: 22px; margin-top: 2px; }
+  .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
 </style>

@@ -331,6 +331,36 @@ export class QueryService {
 
   // ---------------- 维护 ----------------
 
+  dataSummary() {
+    const c = (sql) => this.db.prepare(sql).get().c;
+    return {
+      devices: c('SELECT count(*) c FROM devices'),
+      readings: c('SELECT count(*) c FROM readings'),
+      frames: c('SELECT count(*) c FROM frames'),
+      alarms: c('SELECT count(*) c FROM alarms'),
+      commands: c('SELECT count(*) c FROM commands'),
+      oldestReading: this.db.prepare('SELECT min(ts) v FROM readings').get().v,
+      dbBytes: this.db.prepare('SELECT page_count * page_size v FROM pragma_page_count(), pragma_page_size()').get().v,
+    };
+  }
+
+  /** scope=all 清空全部（含设备档案）；scope=data 仅清空数据、报文、报警与命令，保留设备档案 */
+  purge(scope) {
+    const before = this.dataSummary();
+    this.db.exec('BEGIN');
+    try {
+      for (const t of ['readings', 'frames', 'alarms', 'commands']) this.db.exec(`DELETE FROM ${t}`);
+      if (scope === 'all') this.db.exec('DELETE FROM devices');
+      else this.db.exec("UPDATE devices SET frame_count = 0, alarm_raw = 0, alarm_bits = '[]'");
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    try { this.db.exec('VACUUM'); } catch { /* 忽略 */ }
+    return { deleted: before };
+  }
+
   cleanup() {
     const now = Date.now();
     let frames = 0;

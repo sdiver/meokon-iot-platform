@@ -22,10 +22,15 @@ export const config = {
 
   /** MQTT：外部 Broker 地址，例如 mqtt://127.0.0.1:1883；为空则不连接 */
   mqttUrl: env.MQTT_URL || '',
-  mqttUsername: env.MQTT_USERNAME || undefined,
-  mqttPassword: env.MQTT_PASSWORD || undefined,
-  /** 内置 MQTT Broker 端口，0 表示不启用；启用后平台自动连接到内置 Broker */
-  mqttBrokerPort: num(env.MQTT_BROKER_PORT, 1883),
+  /** 平台连接外部 Broker 的用户名 / 密码 */
+  mqttUsername: env.MQTT_USERNAME || '',
+  mqttPassword: env.MQTT_PASSWORD || '',
+  /** 内置 MQTT Broker；未配置外部 MQTT_URL 时平台自动连接内置 Broker（MQTT_BROKER_PORT=0 同样表示不启用） */
+  mqttBrokerEnabled: bool(env.MQTT_BROKER_ENABLED, true) && num(env.MQTT_BROKER_PORT, 1883) !== 0,
+  mqttBrokerPort: num(env.MQTT_BROKER_PORT, 1883) || 1883,
+  /** 设备连接内置 Broker 的用户名 / 密码，为空不校验 */
+  mqttBrokerUsername: env.MQTT_BROKER_USERNAME || '',
+  mqttBrokerPassword: env.MQTT_BROKER_PASSWORD || '',
   mqttUplinkTopic: env.MQTT_UPLINK_TOPIC || 'GIOT-GW/UL/#',
   mqttDownlinkPrefix: env.MQTT_DOWNLINK_PREFIX || 'GIOT-GW/DL/',
 

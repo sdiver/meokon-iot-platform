@@ -13,7 +13,20 @@
       </el-select>
       <el-button :icon="Refresh" @click="load">刷新</el-button>
     </div>
-    <el-table :data="data.items" v-loading="loading" size="small" @row-click="open" row-class-name="clickable" empty-text="暂无报文">
+    <div v-if="isMobile" class="m-list" v-loading="loading">
+      <div v-for="row in data.items" :key="row.id" class="card m-card" @click="open(row)">
+        <div class="m-row">
+          <span class="grow"><b>{{ dirText[row.direction] }}</b> · {{ TRANSPORT[row.transport] || row.transport }} · {{ row.bytes }} 字节</span>
+          <span v-if="row.ok" class="small"><span class="dot good" />正常</span>
+          <span v-else class="small err"><span class="dot critical" />异常</span>
+        </div>
+        <div class="m-sub">{{ fmtTime(row.receivedAt) }}<template v-if="!deviceId && row.deviceId"> · <span class="mono">{{ row.deviceId }}</span></template></div>
+        <div v-if="!row.ok && row.error" class="small err">{{ row.error }}</div>
+        <div class="mono hexcell m-hex">{{ row.hex }}</div>
+      </div>
+      <el-empty v-if="!loading && !data.items.length" description="暂无报文" />
+    </div>
+    <el-table v-else :data="data.items" v-loading="loading" size="small" @row-click="open" row-class-name="clickable" empty-text="暂无报文">
       <el-table-column label="接收时间" width="160"><template #default="{ row }">{{ fmtTime(row.receivedAt) }}</template></el-table-column>
       <el-table-column label="方向" width="80"><template #default="{ row }">{{ dirText[row.direction] }}</template></el-table-column>
       <el-table-column v-if="!deviceId" label="设备" width="140"><template #default="{ row }"><span class="mono">{{ row.deviceId || '-' }}</span></template></el-table-column>
@@ -28,9 +41,9 @@
       <el-table-column label="报文（十六进制）" min-width="260"><template #default="{ row }"><span class="mono hexcell">{{ row.hex }}</span></template></el-table-column>
     </el-table>
     <div class="pager">
-      <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @change="load" />
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next'" :pager-count="isMobile ? 5 : 7" :size="isMobile ? 'small' : 'default'" @change="load" />
     </div>
-    <el-drawer v-model="drawer" title="报文解析" size="min(760px, 100%)" append-to-body>
+    <el-drawer v-model="drawer" title="报文解析" :size="isMobile ? '100%' : 'min(760px, 100%)'" append-to-body>
       <template v-if="cur">
         <div class="mono break raw">{{ cur.hex }}</div>
         <DecodedView :d="decoded" :raw="cur.hex" />
@@ -40,6 +53,7 @@
 </template>
 
 <script setup>
+import { isMobile } from '../utils/responsive.js';
 import { ref, reactive, onMounted } from 'vue';
 import { Refresh } from '@element-plus/icons-vue';
 import DecodedView from './DecodedView.vue';
@@ -72,6 +86,8 @@ onMounted(load);
 <style scoped>
 .hexcell { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .err { color: var(--critical); }
+.small { font-size: 12px; }
+.m-hex { margin-top: 6px; color: var(--ink-2); }
 .raw { background: var(--page-bg); padding: 10px; border-radius: 8px; margin-bottom: 12px; }
 :deep(.clickable) { cursor: pointer; }
 </style>

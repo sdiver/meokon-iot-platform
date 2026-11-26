@@ -5,7 +5,7 @@ const TOKEN_KEY = 'meokon.token';
 export function getToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
-function setToken(t) {
+export function setToken(t) {
   try { localStorage.setItem(TOKEN_KEY, t); } catch { /* ignore */ }
 }
 
@@ -72,6 +72,11 @@ export const api = {
   alarmStats: (q) => request('/stats/alarms', { query: q }),
   typeStats: () => request('/stats/types'),
   activity: (q) => request('/stats/activity', { query: q }),
+  settings: () => request('/settings'),
+  saveSettings: (body) => request('/settings', { method: 'PUT', body }),
+  resetSettings: (keys) => request('/settings/reset', { method: 'POST', body: { keys } }),
+  dataSummary: () => request('/admin/data-summary'),
+  purge: (scope, confirm) => request('/admin/purge', { method: 'POST', body: { scope, confirm } }),
   decode: (hex) => request('/tools/decode', { method: 'POST', body: { hex } }),
   downlink: (body) => request('/tools/downlink', { method: 'POST', body }),
 };

@@ -4,6 +4,7 @@
       <el-radio-button v-for="p in presets" :key="p.v" :value="p.v">{{ p.t }}</el-radio-button>
     </el-radio-group>
     <el-date-picker
+      v-if="!isMobile"
       v-model="custom" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束"
       :shortcuts="[]" style="width: 340px" @change="onCustom" />
   </div>
@@ -11,6 +12,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { isMobile } from '../utils/responsive.js';
 
 const props = defineProps({ modelValue: Array, days: { type: Array, default: () => [1, 7, 30, 90] } });
 const emit = defineEmits(['update:modelValue']);
@@ -34,4 +36,5 @@ function onCustom(v) {
 
 <style scoped>
 .rp { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 768px) { .rp { flex: 1 1 100% !important; } .rp :deep(.el-radio-group) { display: flex; width: 100%; } .rp :deep(.el-radio-button) { flex: 1; } .rp :deep(.el-radio-button__inner) { width: 100%; padding: 8px 4px; } }
 </style>

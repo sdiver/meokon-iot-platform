@@ -22,7 +22,7 @@
     <div class="grid c3 mt">
       <div class="card span2">
         <div class="card-title">近 24 小时上报帧数<span class="hint">帧 / 小时</span></div>
-        <VChart :option="hourlyOpt" :height="260" label="近24小时上报帧数" />
+        <VChart :option="hourlyOpt" :height="isMobile ? 200 : 260" label="近24小时上报帧数" />
       </div>
       <div class="card">
         <div class="card-title">设备状态</div>
@@ -41,15 +41,15 @@
     <div class="grid c3 mt">
       <div class="card">
         <div class="card-title">近 7 日上报帧数<span class="hint">帧</span></div>
-        <VChart :option="trendFramesOpt" :height="240" label="近7日上报帧数" />
+        <VChart :option="trendFramesOpt" :height="isMobile ? 180 : 240" label="近7日上报帧数" />
       </div>
       <div class="card">
         <div class="card-title">近 7 日报警次数<span class="hint">次</span></div>
-        <VChart :option="trendAlarmOpt" :height="240" label="近7日报警次数" />
+        <VChart :option="trendAlarmOpt" :height="isMobile ? 180 : 240" label="近7日报警次数" />
       </div>
       <div class="card">
         <div class="card-title">近 7 日活跃设备数<span class="hint">台</span></div>
-        <VChart :option="trendActiveOpt" :height="240" label="近7日活跃设备数" />
+        <VChart :option="trendActiveOpt" :height="isMobile ? 180 : 240" label="近7日活跃设备数" />
       </div>
     </div>
 
@@ -71,7 +71,14 @@
     <div class="grid c2 mt">
       <div class="card">
         <div class="card-title">最新报警 <a class="link hint" @click="$router.push('/alarms')">查看全部</a></div>
-        <el-table :data="alarms" size="small" empty-text="暂无报警">
+        <div v-if="isMobile" class="m-simple">
+          <div v-for="row in alarms" :key="row.id" class="m-line" @click="$router.push(`/devices/${row.deviceId}`)">
+            <div class="m-row"><span class="grow"><span class="dot" :class="row.open ? 'critical' : 'good'" />{{ row.label }}</span><span class="muted small">{{ fmtTime(row.startTs).slice(5, 16) }}</span></div>
+            <div class="m-sub">{{ row.deviceName || row.deviceId }} · {{ row.open ? '报警中' : '已恢复' }}</div>
+          </div>
+          <el-empty v-if="!alarms.length" description="暂无报警" :image-size="60" />
+        </div>
+        <el-table v-else :data="alarms" size="small" empty-text="暂无报警">
           <el-table-column label="时间" width="150"><template #default="{ row }">{{ fmtTime(row.startTs) }}</template></el-table-column>
           <el-table-column label="设备" min-width="140">
             <template #default="{ row }"><a class="link" @click="$router.push(`/devices/${row.deviceId}`)">{{ row.deviceName || row.deviceId }}</a></template>
@@ -84,7 +91,14 @@
       </div>
       <div class="card">
         <div class="card-title">实时上报<span class="hint">最近 {{ feed.length }} 条</span></div>
-        <el-table :data="feed" size="small" empty-text="等待设备上报…" max-height="330">
+        <div v-if="isMobile" class="m-simple">
+          <div v-for="(row, i) in feed.slice(0, 10)" :key="i" class="m-line" @click="row.deviceId && $router.push(`/devices/${row.deviceId}`)">
+            <div class="m-row"><span class="grow mono">{{ row.deviceId || '-' }}</span><span class="muted small">{{ fmtTime(row.at).slice(11) }} · {{ TRANSPORT[row.transport] || row.transport }}</span></div>
+            <div class="m-sub"><span v-if="!row.ok" class="err">✕ {{ row.error }}</span><span v-else>{{ summary(row) }}</span></div>
+          </div>
+          <el-empty v-if="!feed.length" description="等待设备上报…" :image-size="60" />
+        </div>
+        <el-table v-else :data="feed" size="small" empty-text="等待设备上报…" max-height="330">
           <el-table-column label="时间" width="90"><template #default="{ row }">{{ fmtTime(row.at).slice(11) }}</template></el-table-column>
           <el-table-column label="设备" min-width="130">
             <template #default="{ row }"><a v-if="row.deviceId" class="link mono" @click="$router.push(`/devices/${row.deviceId}`)">{{ row.deviceId }}</a><span v-else>-</span></template>
@@ -113,6 +127,7 @@ import { fmtTime, fmtPct, fmtParam, TRANSPORT } from '../utils/format.js';
 import { timeLine, categoryBar } from '../utils/charts.js';
 import { isDark, pal, STATUS_COLORS } from '../utils/theme.js';
 import { onStream, debounce } from '../utils/stream.js';
+import { isMobile } from '../utils/responsive.js';
 
 const router = useRouter();
 const o = ref(null);
@@ -206,4 +221,10 @@ async function goType(name) {
 .kv span:first-child { color: var(--ink-2); white-space: nowrap; }
 .kv span:last-child { text-align: right; }
 .err { color: var(--critical); }
+.small { font-size: 12px; }
+.m-line { padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.m-line:last-child { border-bottom: 0; }
+@media (max-width: 768px) {
+  .srow { grid-template-columns: 76px 1fr 36px; }
+}
 </style>

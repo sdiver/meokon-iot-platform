@@ -13,13 +13,32 @@
       <el-select v-model="q.label" placeholder="报警类型" clearable filterable allow-create style="width: 170px" @change="reload">
         <el-option v-for="l in labels" :key="l" :label="l" :value="l" />
       </el-select>
-      <el-date-picker v-model="dr" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 260px" @change="reload" />
+      <el-date-picker v-if="!isMobile" v-model="dr" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 260px" @change="reload" />
       <el-button :icon="Refresh" @click="load">刷新</el-button>
       <el-popconfirm title="确认全部未确认的报警？" @confirm="ackAll">
         <template #reference><el-button type="primary" plain>全部确认</el-button></template>
       </el-popconfirm>
     </div>
-    <el-table :data="data.items" v-loading="loading" size="small" empty-text="暂无报警记录">
+    <div v-if="isMobile" class="m-list" v-loading="loading">
+      <div v-for="row in data.items" :key="row.id" class="card m-card m-alarm" :class="{ open: row.open }">
+        <div class="m-row">
+          <b class="grow">{{ row.label }}</b>
+          <span class="nowrap"><span class="dot" :class="row.open ? 'critical' : 'good'" />{{ row.open ? '报警中' : '已恢复' }}</span>
+        </div>
+        <div v-if="!deviceId" class="m-sub" @click="$router.push(`/devices/${row.deviceId}`)">
+          <a class="link mono">{{ row.deviceId }}</a> {{ row.deviceName || row.typeName }}<template v-if="row.location"> · {{ row.location }}</template>
+        </div>
+        <div class="m-sub">{{ fmtTime(row.startTs) }} · 持续 {{ fmtDuration(row.duration) }}</div>
+        <div v-if="snap(row)" class="small snap">{{ snap(row) }}</div>
+        <div class="m-row m-foot">
+          <span v-if="row.acked" class="small muted grow">已确认<template v-if="row.note">：{{ row.note }}</template></span>
+          <span v-else class="small muted grow">未确认</span>
+          <el-button v-if="!row.acked" size="small" type="primary" plain @click="ack(row)">确认</el-button>
+        </div>
+      </div>
+      <el-empty v-if="!loading && !data.items.length" description="暂无报警记录" />
+    </div>
+    <el-table v-else :data="data.items" v-loading="loading" size="small" empty-text="暂无报警记录">
       <el-table-column label="开始时间" width="160"><template #default="{ row }">{{ fmtTime(row.startTs) }}</template></el-table-column>
       <el-table-column v-if="!deviceId" label="设备" min-width="170">
         <template #default="{ row }">
@@ -43,12 +62,13 @@
       </el-table-column>
     </el-table>
     <div class="pager">
-      <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @change="load" />
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next'" :pager-count="isMobile ? 5 : 7" :size="isMobile ? 'small' : 'default'" @change="load" />
     </div>
   </div>
 </template>
 
 <script setup>
+import { isMobile } from '../utils/responsive.js';
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { Refresh } from '@element-plus/icons-vue';
@@ -106,4 +126,8 @@ onMounted(async () => {
 
 <style scoped>
 .small { font-size: 12px; }
+.nowrap { white-space: nowrap; font-size: 13px; }
+.m-alarm.open { border-left: 3px solid var(--critical); }
+.snap { margin-top: 6px; }
+.m-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hair); }
 </style>
