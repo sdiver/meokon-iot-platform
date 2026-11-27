@@ -1,4 +1,5 @@
 import { getDeviceType } from '../protocol/deviceTypes.js';
+import { inScope, scopeSql, currentOperator, currentScope } from './scope.js';
 
 const json = (s, d = null) => {
   if (s == null) return d;
@@ -90,7 +91,7 @@ export class QueryService {
   }
 
   allDevices(now = Date.now()) {
-    return this.db.prepare('SELECT * FROM devices ORDER BY last_seen DESC, created_at DESC').all().map((r) => this.mapDevice(r, now));
+    return this.db.prepare('SELECT * FROM devices ORDER BY last_seen DESC, created_at DESC').all().filter((r) => inScope(r.project)).map((r) => this.mapDevice(r, now));
   }
 
   listDevices(q = {}) {
@@ -118,7 +119,7 @@ export class QueryService {
 
   getDevice(id) {
     const row = this.db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
-    return row ? this.mapDevice(row) : null;
+    return row && inScope(row.project) ? this.mapDevice(row) : null;
   }
 
   /** 校验并转换档案字段 */
@@ -130,6 +131,10 @@ export class QueryService {
       if (k === 'lat' || k === 'lng') {
         v = v === '' || v === null ? null : Number(v);
         if (v !== null && (!Number.isFinite(v) || (k === 'lat' ? Math.abs(v) > 90 : Math.abs(v) > 180))) throw badRequest(`${k === 'lat' ? '纬度' : '经度'}超出范围`);
+      } else if (k === 'project') {
+        v = v === null ? null : String(v).trim().slice(0, 50) || null;
+        const sc = currentScope();
+        if (!sc.all && !(v && sc.projects.includes(v))) throw badRequest(v ? `无权将设备归入项目“${v}”` : '请选择设备所属项目');
       } else if (k === 'alarmPush') {
         v = v === false || v === 0 || v === '0' || v === 'false' || v === '关' ? 0 : 1;
       } else {
@@ -141,10 +146,13 @@ export class QueryService {
   }
 
   updateDevice(id, patch, { now = Date.now() } = {}) {
-    const before = this.db.prepare('SELECT lat, lng, iccid FROM devices WHERE id = ?').get(id);
-    if (!before) return null;
+    const before = this.db.prepare('SELECT lat, lng, iccid, project FROM devices WHERE id = ?').get(id);
+    if (!before || !inScope(before.project)) return null;
     const cols = this.archiveColumns(patch);
     if (cols.length) this.db.prepare(`UPDATE devices SET ${cols.map(([c]) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map(([, v]) => v), id);
+    // 档案中出现新的项目名称时自动建立项目
+    const proj = cols.find(([c]) => c === 'project')?.[1];
+    if (proj) this.db.prepare('INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, ?)').run(proj, now);
     const after = this.db.prepare('SELECT lat, lng, iccid, location FROM devices WHERE id = ?').get(id);
     if (after.lat != null && after.lng != null && (after.lat !== before.lat || after.lng !== before.lng)) {
       this.db.prepare("INSERT INTO locations (device_id, ts, lat, lng, source, address) VALUES (?, ?, ?, ?, 'manual', ?)").run(id, now, after.lat, after.lng, after.location);
@@ -168,7 +176,14 @@ export class QueryService {
       typeCode = def.code;
       typeName = def.name;
     }
-    this.db.prepare('INSERT INTO devices (id, first_seen, last_seen, created_at, type_code, type_name, frame_count) VALUES (?, 0, 0, ?, ?, ?, 0)').run(id, now, typeCode, typeName);
+    const sc = currentScope();
+    if (!sc.all) {
+      if (!sc.projects.length) throw badRequest('当前账号未分配项目，无法登记设备');
+      if (!body.project) body = { ...body, project: sc.projects[0] };
+      this.archiveColumns({ project: body.project }); // 校验项目权限
+    }
+    this.db.prepare('INSERT INTO devices (id, first_seen, last_seen, created_at, type_code, type_name, frame_count, project) VALUES (?, 0, 0, ?, ?, ?, 0, ?)')
+      .run(id, now, typeCode, typeName, sc.all ? null : body.project);
     return this.updateDevice(id, body, { now });
   }
 
@@ -183,7 +198,7 @@ export class QueryService {
         try {
           const id = String(r.id ?? '').trim();
           if (this.db.prepare('SELECT 1 FROM devices WHERE id = ?').get(id)) {
-            this.updateDevice(id, r, { now });
+            if (!this.updateDevice(id, r, { now })) throw badRequest('无权修改该设备');
             result.updated++;
           } else {
             this.createDevice(r, now);
@@ -202,6 +217,7 @@ export class QueryService {
   }
 
   deleteDevice(id, purge = false) {
+    if (!this.getDevice(id)) return;
     this.db.prepare('DELETE FROM devices WHERE id = ?').run(id);
     if (purge) {
       for (const t of ['readings', 'frames', 'alarms', 'commands', 'locations', 'maintenance']) this.db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
@@ -213,7 +229,7 @@ export class QueryService {
   }
 
   projects() {
-    return this.db.prepare("SELECT DISTINCT project AS p FROM devices WHERE project IS NOT NULL AND project <> '' ORDER BY p").all().map((r) => r.p);
+    return this.db.prepare("SELECT name AS p FROM projects UNION SELECT DISTINCT project FROM devices WHERE project IS NOT NULL AND project <> '' ORDER BY p").all().map((r) => r.p).filter((p) => inScope(p));
   }
 
   /** 运行信息 */
@@ -248,8 +264,9 @@ export class QueryService {
   // ---------------- 维保记录 ----------------
 
   maintenance({ deviceId, type, from, to, page = 1, size = 20 } = {}) {
-    const where = [];
-    const args = [];
+    const sc = scopeSql('m.device_id');
+    const where = [sc.sql];
+    const args = [...sc.args];
     if (deviceId) { where.push('m.device_id LIKE ?'); args.push(`%${deviceId}%`); }
     if (type) { where.push('m.type = ?'); args.push(type); }
     if (from) { where.push('m.ts >= ?'); args.push(toMs(from)); }
@@ -260,14 +277,14 @@ export class QueryService {
     const total = this.db.prepare(`SELECT count(*) c FROM maintenance m ${w}`).get(...args).c;
     const items = this.db.prepare(`SELECT m.*, d.name device_name, d.model FROM maintenance m LEFT JOIN devices d ON d.id = m.device_id ${w} ORDER BY m.ts DESC, m.id DESC LIMIT ? OFFSET ?`)
       .all(...args, size, (page - 1) * size)
-      .map((r) => ({ id: r.id, deviceId: r.device_id, deviceName: r.device_name, model: r.model, type: r.type, oldValue: r.old_value, newValue: r.new_value, note: r.note, ts: r.ts, auto: !!r.auto }));
-    const counts = Object.fromEntries(this.db.prepare('SELECT type, count(*) n FROM maintenance GROUP BY type').all().map((r) => [r.type, r.n]));
+      .map((r) => ({ id: r.id, deviceId: r.device_id, deviceName: r.device_name, model: r.model, type: r.type, oldValue: r.old_value, newValue: r.new_value, note: r.note, ts: r.ts, auto: !!r.auto, operator: r.operator }));
+    const counts = Object.fromEntries(this.db.prepare(`SELECT type, count(*) n FROM maintenance m WHERE ${sc.sql} GROUP BY type`).all(...sc.args).map((r) => [r.type, r.n]));
     return { total, page, size, items, counts };
   }
 
   addMaintenance(b, now = Date.now()) {
     const deviceId = String(b?.deviceId ?? '').trim();
-    if (!this.db.prepare('SELECT 1 FROM devices WHERE id = ?').get(deviceId)) throw badRequest('设备不存在');
+    if (!this.getDevice(deviceId)) throw badRequest('设备不存在');
     const type = String(b.type ?? '').trim();
     if (!MAINT_TYPES.includes(type)) throw badRequest(`维保类型应为：${MAINT_TYPES.join(' / ')}`);
     const ts = b.ts ? toMs(b.ts) : now;
@@ -280,16 +297,18 @@ export class QueryService {
       oldValue = oldValue ?? cur ?? null;
       this.db.prepare('UPDATE devices SET iccid = ? WHERE id = ?').run(newValue, deviceId);
     }
-    const r = this.db.prepare('INSERT INTO maintenance (device_id, type, old_value, new_value, note, ts, auto) VALUES (?, ?, ?, ?, ?, ?, 0)').run(deviceId, type, oldValue, newValue, clip(b.note), ts);
+    const r = this.db.prepare('INSERT INTO maintenance (device_id, type, old_value, new_value, note, ts, auto, operator) VALUES (?, ?, ?, ?, ?, ?, 0, ?)').run(deviceId, type, oldValue, newValue, clip(b.note), ts, currentOperator());
     return Number(r.lastInsertRowid);
   }
 
   deleteMaintenance(id) {
-    this.db.prepare('DELETE FROM maintenance WHERE id = ?').run(id);
+    const sc = scopeSql('device_id');
+    this.db.prepare(`DELETE FROM maintenance WHERE id = ? AND ${sc.sql}`).run(id, ...sc.args);
   }
 
   groups() {
-    return this.db.prepare("SELECT DISTINCT group_name AS g FROM devices WHERE group_name IS NOT NULL AND group_name <> '' ORDER BY g").all().map((r) => r.g);
+    const sc = scopeSql('id');
+    return this.db.prepare(`SELECT DISTINCT group_name AS g FROM devices WHERE group_name IS NOT NULL AND group_name <> '' AND ${sc.sql} ORDER BY g`).all(...sc.args).map((r) => r.g);
   }
 
   // ---------------- 采集数据 ----------------
@@ -423,8 +442,9 @@ export class QueryService {
   // ---------------- 原始报文 ----------------
 
   frames({ deviceId, direction, ok, page = 1, size = 20, from, to } = {}) {
-    const where = [];
-    const args = [];
+    const sc = scopeSql('device_id');
+    const where = [sc.sql];
+    const args = [...sc.args];
     if (deviceId) { where.push('device_id = ?'); args.push(deviceId); }
     if (direction) { where.push('direction = ?'); args.push(direction); }
     if (ok === '1' || ok === '0' || ok === 1 || ok === 0) { where.push('ok = ?'); args.push(Number(ok)); }
@@ -445,8 +465,9 @@ export class QueryService {
   // ---------------- 报警 ----------------
 
   alarmWhere(q = {}) {
-    const where = [];
-    const args = [];
+    const sc = scopeSql('a.device_id');
+    const where = [sc.sql];
+    const args = [...sc.args];
     if (q.deviceId) { where.push('a.device_id = ?'); args.push(q.deviceId); }
     if (q.keyword) { where.push('(a.device_id LIKE ? OR d.name LIKE ? OR d.location LIKE ?)'); const k = `%${q.keyword}%`; args.push(k, k, k); }
     if (q.status === 'open') where.push('a.end_ts IS NULL');
@@ -475,7 +496,7 @@ export class QueryService {
       startTs: r.start_ts, endTs: r.end_ts, open: r.end_ts == null,
       duration: r.end_ts ? r.end_ts - r.start_ts : now - r.start_ts,
       snapshot: json(r.snapshot, {}), thresholds: json(r.thresholds, []),
-      status: r.status ?? 0, acked: (r.status ?? 0) > 0, handledAt: r.handled_at, ackedAt: r.handled_at, note: r.note,
+      status: r.status ?? 0, acked: (r.status ?? 0) > 0, handledAt: r.handled_at, ackedAt: r.handled_at, note: r.note, handledBy: r.handled_by,
       deviceStatus: dev?.status ?? null, deviceRealtime: dev?.realtime ?? null, lat: dev?.lat ?? null, lng: dev?.lng ?? null,
       owner: dev?.owner ?? null, contact: dev?.contact ?? null,
     };
@@ -494,12 +515,13 @@ export class QueryService {
 
   /** 报警汇总：处理状态、严重程度、上下限，以及告警设备数 */
   alarmSummary() {
+    const sc = scopeSql('device_id');
     const s = this.db.prepare(`SELECT count(*) total, sum(status = 0) pending, sum(status = 1) recorded, sum(status = 2) handled,
       count(DISTINCT CASE WHEN status = 0 THEN device_id END) devices,
       sum(status = 0 AND level = 'high') high, sum(status = 0 AND level = 'mid') mid, sum(status = 0 AND level = 'low') low,
       sum(status = 0 AND label LIKE '%高报警') upper, sum(status = 0 AND label LIKE '%低报警') lower,
       sum(end_ts IS NULL) open
-      FROM alarms`).get();
+      FROM alarms WHERE ${sc.sql}`).get(...sc.args);
     const n = (v) => v ?? 0;
     return {
       total: n(s.total), pending: n(s.pending), recorded: n(s.recorded), handled: n(s.handled), devices: n(s.devices), open: n(s.open),
@@ -515,9 +537,11 @@ export class QueryService {
     status = Number(status);
     if (![0, 1, 2].includes(status)) throw badRequest('处理状态应为 0 / 1 / 2');
     const n = note == null || note === '' ? null : String(note).slice(0, 500);
-    const stmt = this.db.prepare('UPDATE alarms SET status = ?, acked = ?, handled_at = ?, acked_at = ?, note = COALESCE(?, note) WHERE id = ?');
+    const sc = scopeSql('device_id');
+    const stmt = this.db.prepare(`UPDATE alarms SET status = ?, acked = ?, handled_at = ?, acked_at = ?, note = COALESCE(?, note), handled_by = ? WHERE id = ? AND ${sc.sql}`);
+    const by = status > 0 ? currentOperator() : null;
     this.db.exec('BEGIN');
-    for (const id of list) stmt.run(status, status > 0 ? 1 : 0, status > 0 ? now : null, status > 0 ? now : null, n, id);
+    for (const id of list) stmt.run(status, status > 0 ? 1 : 0, status > 0 ? now : null, status > 0 ? now : null, n, by, id, ...sc.args);
     this.db.exec('COMMIT');
     return list.length;
   }
@@ -529,9 +553,10 @@ export class QueryService {
 
   /** 将未处理的报警全部标为已记录（或已处理） */
   ackAll(deviceId, status = 1, note) {
+    const sc = scopeSql('device_id');
     const rows = deviceId
-      ? this.db.prepare('SELECT id FROM alarms WHERE status = 0 AND device_id = ?').all(deviceId)
-      : this.db.prepare('SELECT id FROM alarms WHERE status = 0').all();
+      ? this.db.prepare(`SELECT id FROM alarms WHERE status = 0 AND device_id = ? AND ${sc.sql}`).all(deviceId, ...sc.args)
+      : this.db.prepare(`SELECT id FROM alarms WHERE status = 0 AND ${sc.sql}`).all(...sc.args);
     if (rows.length) this.handleAlarms(rows.map((r) => r.id), status, note);
     return rows.length;
   }
@@ -542,11 +567,11 @@ export class QueryService {
     const LEVEL = { high: '高', mid: '中', low: '低' };
     const fmt = (ms) => (ms ? new Date(ms + this.tzSec * 1000).toISOString().replace('T', ' ').slice(0, 19) : '');
     const esc = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-    const head = ['告警编号', '设备编号', '设备名称', '设备类型', '安装位置', '告警类型', '级别', '处理状态', '告警时间', '恢复时间', '触发时数据', '处理说明'];
+    const head = ['告警编号', '设备编号', '设备名称', '设备类型', '安装位置', '告警类型', '级别', '处理状态', '告警时间', '恢复时间', '触发时数据', '处理说明', '处理人'];
     const lines = [head.join(',')];
     for (const a of items) {
       lines.push([a.code, a.deviceId, a.deviceName, a.typeName, a.location, a.label, LEVEL[a.level], STATUS[a.status], fmt(a.startTs), fmt(a.endTs),
-        Object.entries(a.snapshot).map(([k, v]) => `${k}=${v}`).join(' '), a.note].map(esc).join(','));
+        Object.entries(a.snapshot).map(([k, v]) => `${k}=${v}`).join(' '), a.note, a.handledBy].map(esc).join(','));
     }
     return '\ufeff' + lines.join('\n');
   }
@@ -556,7 +581,8 @@ export class QueryService {
     days = Math.min(366, Math.max(1, Number(days) || 30));
     const tz = this.config.tzOffsetHours * 3600;
     const since = this.startOfDay(now, days - 1);
-    const rows = this.db.prepare(`SELECT date(start_ts / 1000 + ${tz}, 'unixepoch') d, label, count(*) n FROM alarms WHERE start_ts >= ? GROUP BY d, label`).all(since);
+    const sc = scopeSql('device_id');
+    const rows = this.db.prepare(`SELECT date(start_ts / 1000 + ${tz}, 'unixepoch') d, label, count(*) n FROM alarms WHERE start_ts >= ? AND ${sc.sql} GROUP BY d, label`).all(since, ...sc.args);
     const dates = Array.from({ length: days }, (_, i) => new Date(since + i * 86400000 + tz * 1000).toISOString().slice(0, 10));
     const totals = new Map();
     for (const r of rows) totals.set(r.label, (totals.get(r.label) || 0) + r.n);
@@ -575,8 +601,9 @@ export class QueryService {
   }
 
   commandList({ deviceId, status, keyword, page = 1, size = 20 } = {}) {
-    const where = [];
-    const args = [];
+    const sc = scopeSql('c.device_id');
+    const where = [sc.sql];
+    const args = [...sc.args];
     if (deviceId) { where.push('c.device_id = ?'); args.push(deviceId); }
     if (status) { where.push('c.status = ?'); args.push(status); }
     if (keyword) { where.push('(c.device_id LIKE ? OR d.name LIKE ? OR c.note LIKE ?)'); const k = `%${keyword}%`; args.push(k, k, k); }
@@ -591,11 +618,11 @@ export class QueryService {
         return {
           id: r.id, deviceId: r.device_id, deviceName: r.device_name, typeName: dev?.typeName ?? null, model: dev?.model ?? null,
           deviceStatus: dev?.status ?? null, lastSeen: dev?.lastSeen ?? null, transport: dev?.transport ?? null,
-          params: r.params_hex, note: r.note, status: r.status, createdAt: r.created_at,
+          params: r.params_hex, note: r.note, status: r.status, createdAt: r.created_at, createdBy: r.created_by,
           sentAt: r.sent_at, sentVia: r.sent_via, ackAt: r.ack_at, ackParams: r.ack_hex,
         };
       });
-    const counts = Object.fromEntries(this.db.prepare('SELECT status, count(*) n FROM commands GROUP BY status').all().map((r) => [r.status, r.n]));
+    const counts = Object.fromEntries(this.db.prepare(`SELECT status, count(*) n FROM commands c WHERE ${sc.sql} GROUP BY status`).all(...sc.args).map((r) => [r.status, r.n]));
     return { total, page, size, items, counts };
   }
 
@@ -603,7 +630,8 @@ export class QueryService {
     const clean = String(paramsHex || '').replace(/0x/gi, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
     if (!clean || clean.length % 2) throw badRequest('参数设置数据单元必须是偶数长度的十六进制');
     if (clean.length / 2 > 255) throw badRequest('参数设置数据单元最多 255 字节');
-    const r = this.db.prepare('INSERT INTO commands (device_id, params_hex, note, created_at) VALUES (?, ?, ?, ?)').run(deviceId, clean, note ?? null, Date.now());
+    if (!this.getDevice(deviceId)) throw Object.assign(new Error(`设备 ${deviceId} 不存在或无权访问`), { status: 404 });
+    const r = this.db.prepare('INSERT INTO commands (device_id, params_hex, note, created_at, created_by) VALUES (?, ?, ?, ?, ?)').run(deviceId, clean, note ?? null, Date.now(), currentOperator());
     return Number(r.lastInsertRowid);
   }
 
@@ -623,13 +651,15 @@ export class QueryService {
   }
 
   cancelCommand(id) {
-    return Number(this.db.prepare("UPDATE commands SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(id).changes);
+    const sc = scopeSql('device_id');
+    return Number(this.db.prepare(`UPDATE commands SET status = 'cancelled' WHERE id = ? AND status = 'pending' AND ${sc.sql}`).run(id, ...sc.args).changes);
   }
 
   deleteCommands(ids) {
-    const stmt = this.db.prepare("DELETE FROM commands WHERE id = ? AND status IN ('cancelled', 'acked', 'sent')");
+    const sc = scopeSql('device_id');
+    const stmt = this.db.prepare(`DELETE FROM commands WHERE id = ? AND status IN ('cancelled', 'acked', 'sent') AND ${sc.sql}`);
     let n = 0;
-    for (const id of ids || []) n += Number(stmt.run(Number(id)).changes);
+    for (const id of ids || []) n += Number(stmt.run(Number(id), ...sc.args).changes);
     return n;
   }
 

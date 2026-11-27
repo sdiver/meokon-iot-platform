@@ -16,11 +16,11 @@ const config = {
   mqttUrl: '', mqttUplinkTopic: 'GIOT-GW/UL/#', mqttDownlinkPrefix: 'GIOT-GW/DL/',
   dbFile: ':memory:', frameRetentionDays: 0, readingRetentionDays: 0,
   maxClockSkewSec: 3600, offlineMinSec: 1800, offlineFactor: 2.5, tzOffsetHours: 8,
-  authToken: '', pushToken: '', webDist: '/nonexistent',
+  authToken: 'test-api-token', pushToken: '', webDist: '/nonexistent',
 };
 
 let p;
-let token = '';
+let token = 'test-api-token';
 const api = async (path, init = {}) => {
   const r = await fetch(`http://127.0.0.1:${config.httpPort}/api${path}`, {
     ...init,
@@ -115,14 +115,17 @@ test('内置 Broker 设备认证', async () => {
   assert.equal(await mqttConnect({}), true);
 });
 
-test('设置访问令牌后接口需要授权', async () => {
+test('修改 API 访问令牌后立即生效', async () => {
   await api('/settings', { method: 'PUT', body: { authToken: 'tk-123' } });
-  assert.equal((await api('/devices')).status, 401);
+  assert.equal((await api('/devices')).status, 401, '旧令牌失效');
   token = 'tk-123';
   assert.equal((await api('/devices')).status, 200);
   await api('/settings/reset', { method: 'POST', body: { keys: ['authToken'] } });
-  token = '';
+  token = 'test-api-token';
   assert.equal((await api('/devices')).status, 200);
+  token = '';
+  assert.equal((await api('/devices')).status, 401, '未登录访问被拒绝');
+  token = 'test-api-token';
 });
 
 test('设置持久化：重新加载后仍然生效', async () => {

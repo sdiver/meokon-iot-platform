@@ -1,4 +1,5 @@
 import { listDeviceTypes } from '../protocol/deviceTypes.js';
+import { scopeSql } from './scope.js';
 
 const SIGNAL_LEVELS = [
   { name: '强 (≥-85dBm)', test: (s) => s >= -85 },
@@ -35,10 +36,11 @@ export class StatsService {
     const devices = this.query.allDevices(now);
     const today = this.query.startOfDay(now);
     const online = devices.filter((d) => d.online).length;
-    const fr = this.db.prepare("SELECT sum(direction = 'up' AND ok = 1) up, sum(direction = 'up' AND ok = 0) bad, sum(direction = 'down') down FROM frames WHERE received_at >= ?").get(today);
-    const readingsToday = this.db.prepare('SELECT count(*) c FROM readings WHERE ts >= ?').get(Math.floor(today / 1000)).c;
-    const alarmsToday = this.db.prepare('SELECT count(*) c FROM alarms WHERE start_ts >= ?').get(today).c;
-    const totals = this.db.prepare('SELECT (SELECT count(*) FROM readings) r, (SELECT count(*) FROM frames) f, (SELECT count(*) FROM alarms) a').get();
+    const sc = scopeSql('device_id');
+    const fr = this.db.prepare(`SELECT sum(direction = 'up' AND ok = 1) up, sum(direction = 'up' AND ok = 0) bad, sum(direction = 'down') down FROM frames WHERE received_at >= ? AND ${sc.sql}`).get(today, ...sc.args);
+    const readingsToday = this.db.prepare(`SELECT count(*) c FROM readings WHERE ts >= ? AND ${sc.sql}`).get(Math.floor(today / 1000), ...sc.args).c;
+    const alarmsToday = this.db.prepare(`SELECT count(*) c FROM alarms WHERE start_ts >= ? AND ${sc.sql}`).get(today, ...sc.args).c;
+    const totals = this.db.prepare(`SELECT (SELECT count(*) FROM readings WHERE ${sc.sql}) r, (SELECT count(*) FROM frames WHERE ${sc.sql}) f, (SELECT count(*) FROM alarms WHERE ${sc.sql}) a`).get(...sc.args, ...sc.args, ...sc.args);
     const battDevices = devices.filter((d) => d.battery.source === '电池' && d.battery.level != null);
 
     return {
@@ -87,11 +89,12 @@ export class StatsService {
     const tz = this.config.tzOffsetHours * 3600;
     const since = this.query.startOfDay(now, days - 1);
     const dayKey = (col, ms) => `date(${ms ? `${col} / 1000` : col} + ${tz}, 'unixepoch')`;
+    const sc = scopeSql('device_id');
     const frames = this.db.prepare(`SELECT ${dayKey('received_at', true)} d, sum(direction='up' AND ok=1) up, sum(direction='up' AND ok=0) bad,
         count(DISTINCT CASE WHEN direction='up' AND ok=1 THEN device_id END) active
-      FROM frames WHERE received_at >= ? GROUP BY d`).all(since);
-    const readings = this.db.prepare(`SELECT ${dayKey('ts')} d, count(*) n FROM readings WHERE ts >= ? GROUP BY d`).all(Math.floor(since / 1000));
-    const alarms = this.db.prepare(`SELECT ${dayKey('start_ts', true)} d, count(*) n FROM alarms WHERE start_ts >= ? GROUP BY d`).all(since);
+      FROM frames WHERE received_at >= ? AND ${sc.sql} GROUP BY d`).all(since, ...sc.args);
+    const readings = this.db.prepare(`SELECT ${dayKey('ts')} d, count(*) n FROM readings WHERE ts >= ? AND ${sc.sql} GROUP BY d`).all(Math.floor(since / 1000), ...sc.args);
+    const alarms = this.db.prepare(`SELECT ${dayKey('start_ts', true)} d, count(*) n FROM alarms WHERE start_ts >= ? AND ${sc.sql} GROUP BY d`).all(since, ...sc.args);
     const fm = new Map(frames.map((r) => [r.d, r]));
     const rm = new Map(readings.map((r) => [r.d, r.n]));
     const am = new Map(alarms.map((r) => [r.d, r.n]));
@@ -109,7 +112,8 @@ export class StatsService {
     const hourMs = 3600000;
     const end = Math.floor(now / hourMs) * hourMs;
     const since = end - 23 * hourMs;
-    const rows = this.db.prepare("SELECT (received_at / 3600000) * 3600000 h, count(*) n, count(DISTINCT device_id) dev FROM frames WHERE direction='up' AND ok=1 AND received_at >= ? GROUP BY h").all(since);
+    const sc = scopeSql('device_id');
+    const rows = this.db.prepare(`SELECT (received_at / 3600000) * 3600000 h, count(*) n, count(DISTINCT device_id) dev FROM frames WHERE direction='up' AND ok=1 AND received_at >= ? AND ${sc.sql} GROUP BY h`).all(since, ...sc.args);
     const m = new Map(rows.map((r) => [r.h, r]));
     return Array.from({ length: 24 }, (_, i) => {
       const h = since + i * hourMs;
@@ -123,16 +127,18 @@ export class StatsService {
     const t = to ? Number(to) : now;
     const f = from ? Number(from) : this.query.startOfDay(now, 29);
     const tz = this.config.tzOffsetHours * 3600;
-    const byLabel = this.db.prepare('SELECT label name, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? GROUP BY label ORDER BY value DESC').all(f, t);
+    const sc = scopeSql('device_id');
+    const sa = scopeSql('a.device_id');
+    const byLabel = this.db.prepare(`SELECT label name, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? AND ${sc.sql} GROUP BY label ORDER BY value DESC`).all(f, t, ...sc.args);
     const typeNames = new Map(listDeviceTypes().map((x) => [x.code, x.name]));
-    const byType = this.db.prepare('SELECT type_code code, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? GROUP BY type_code ORDER BY value DESC').all(f, t)
+    const byType = this.db.prepare(`SELECT type_code code, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? AND ${sc.sql} GROUP BY type_code ORDER BY value DESC`).all(f, t, ...sc.args)
       .map((r) => ({ name: typeNames.get(r.code) ?? `类型 ${r.code}`, value: r.value }));
     const topDevices = this.db.prepare(`SELECT a.device_id id, d.name, d.type_name typeName, count(*) value, sum(a.end_ts IS NULL) open
-      FROM alarms a LEFT JOIN devices d ON d.id = a.device_id WHERE a.start_ts BETWEEN ? AND ? GROUP BY a.device_id ORDER BY value DESC LIMIT 10`).all(f, t);
-    const daily = this.db.prepare(`SELECT date(start_ts / 1000 + ${tz}, 'unixepoch') date, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? GROUP BY date ORDER BY date`).all(f, t);
-    const hourOfDay = this.db.prepare(`SELECT CAST(strftime('%H', start_ts / 1000 + ${tz}, 'unixepoch') AS INTEGER) hour, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? GROUP BY hour`).all(f, t);
+      FROM alarms a LEFT JOIN devices d ON d.id = a.device_id WHERE a.start_ts BETWEEN ? AND ? AND ${sa.sql} GROUP BY a.device_id ORDER BY value DESC LIMIT 10`).all(f, t, ...sa.args);
+    const daily = this.db.prepare(`SELECT date(start_ts / 1000 + ${tz}, 'unixepoch') date, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? AND ${sc.sql} GROUP BY date ORDER BY date`).all(f, t, ...sc.args);
+    const hourOfDay = this.db.prepare(`SELECT CAST(strftime('%H', start_ts / 1000 + ${tz}, 'unixepoch') AS INTEGER) hour, count(*) value FROM alarms WHERE start_ts BETWEEN ? AND ? AND ${sc.sql} GROUP BY hour`).all(f, t, ...sc.args);
     const sum = this.db.prepare(`SELECT count(*) total, sum(end_ts IS NULL) open, sum(acked) acked, avg(CASE WHEN end_ts IS NOT NULL THEN end_ts - start_ts END) avgDuration,
-      max(CASE WHEN end_ts IS NOT NULL THEN end_ts - start_ts END) maxDuration, count(DISTINCT device_id) devices FROM alarms WHERE start_ts BETWEEN ? AND ?`).get(f, t);
+      max(CASE WHEN end_ts IS NOT NULL THEN end_ts - start_ts END) maxDuration, count(DISTINCT device_id) devices FROM alarms WHERE start_ts BETWEEN ? AND ? AND ${sc.sql}`).get(f, t, ...sc.args);
     const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, value: hourOfDay.find((r) => r.hour === h)?.value ?? 0 }));
     return {
       from: f, to: t,
@@ -150,8 +156,9 @@ export class StatsService {
     const devices = this.query.allDevices(now);
     const types = new Map(listDeviceTypes().map((t) => [t.code, t]));
     const since = now - 86400000;
-    const frames24 = new Map(this.db.prepare("SELECT type_code t, count(*) n FROM frames WHERE direction='up' AND ok=1 AND received_at >= ? GROUP BY type_code").all(since).map((r) => [r.t, r.n]));
-    const alarms30 = new Map(this.db.prepare('SELECT type_code t, count(*) n FROM alarms WHERE start_ts >= ? GROUP BY type_code').all(now - 30 * 86400000).map((r) => [r.t, r.n]));
+    const sc = scopeSql('device_id');
+    const frames24 = new Map(this.db.prepare(`SELECT type_code t, count(*) n FROM frames WHERE direction='up' AND ok=1 AND received_at >= ? AND ${sc.sql} GROUP BY type_code`).all(since, ...sc.args).map((r) => [r.t, r.n]));
+    const alarms30 = new Map(this.db.prepare(`SELECT type_code t, count(*) n FROM alarms WHERE start_ts >= ? AND ${sc.sql} GROUP BY type_code`).all(now - 30 * 86400000, ...sc.args).map((r) => [r.t, r.n]));
     const groups = new Map();
     for (const d of devices) {
       if (!groups.has(d.typeCode)) groups.set(d.typeCode, []);
@@ -181,9 +188,10 @@ export class StatsService {
     const now = Date.now();
     const t = to ? Number(to) : now;
     const f = from ? Number(from) : now - 7 * 86400000;
+    const sf = scopeSql('f.device_id');
     const rows = this.db.prepare(`SELECT f.device_id id, d.name, d.type_name typeName, sum(f.ok) ok, sum(f.ok = 0) bad, sum(f.record_count) records, max(f.received_at) last
-      FROM frames f LEFT JOIN devices d ON d.id = f.device_id WHERE f.direction = 'up' AND f.received_at BETWEEN ? AND ? AND f.device_id IS NOT NULL
-      GROUP BY f.device_id ORDER BY ok DESC LIMIT ?`).all(f, t, Math.min(200, Number(limit) || 20));
+      FROM frames f LEFT JOIN devices d ON d.id = f.device_id WHERE f.direction = 'up' AND f.received_at BETWEEN ? AND ? AND f.device_id IS NOT NULL AND ${sf.sql}
+      GROUP BY f.device_id ORDER BY ok DESC LIMIT ?`).all(f, t, ...sf.args, Math.min(200, Number(limit) || 20));
     return rows.map((r) => ({ ...r, successRate: r.ok + r.bad ? r.ok / (r.ok + r.bad) : null }));
   }
 }

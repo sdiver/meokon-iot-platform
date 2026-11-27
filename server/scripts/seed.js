@@ -72,5 +72,29 @@ db.prepare("UPDATE alarms SET status = 1, acked = 1, handled_at = start_ts + 600
 // 预先登记一台尚未上报的设备
 db.prepare(`INSERT OR IGNORE INTO devices (id, first_seen, last_seen, created_at, type_code, type_name, frame_count, name, model, project, location, lat, lng, group_name)
   VALUES ('SHMK24069999', 0, 0, ?, 8, '液位表 m', 0, '新建雨水井液位（待安装）', 'MD-S271U', '城区供水二期', '上海市徐汇区待安装点位', 31.205, 121.445, '供水管网')`).run(Date.now());
+// 项目档案
+const PROJECT_INFO = {
+  城区供水一期: ['GS-2024-01', '张工', '13800001111', '上海市黄浦区', '城区供水管网压力、液位在线监测'],
+  城区供水二期: ['GS-2024-02', '李工', '13800002222', '上海市徐汇区', '二期管网扩建及雨水井液位监测'],
+  消防物联网改造: ['XF-2024-01', '王工', '13800003333', '上海市静安区', '消火栓压力、闷盖、倾斜监测'],
+  园区环境监测: ['HJ-2024-01', '赵工', '13800004444', '上海市长宁区', '温湿度、空气质量、噪声监测'],
+};
+const insProj = db.prepare('INSERT OR IGNORE INTO projects (name, code, owner, contact, address, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+for (const [name, [code, owner, contact, address, desc]] of Object.entries(PROJECT_INFO)) insProj.run(name, code, owner, contact, address, desc, start * 1000);
+// 演示账号（密码 Demo1234，无需首次改密）
+const { hashPassword } = await import('../src/services/auth.js');
+const insUser = db.prepare(`INSERT OR IGNORE INTO users (username, name, phone, role, all_projects, password_hash, must_change, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`);
+const pid = (n) => db.prepare('SELECT id FROM projects WHERE name = ?').get(n).id;
+const demoUsers = [
+  ['zhanggong', '张工', '13800001111', 'operator', 0, ['城区供水一期', '城区供水二期']],
+  ['wanggong', '王工', '13800003333', 'operator', 0, ['消防物联网改造']],
+  ['leader', '项目经理', '13900009999', 'viewer', 1, []],
+];
+for (const [u, n, phone, role, all, ps] of demoUsers) {
+  insUser.run(u, n, phone, role, all, hashPassword('Demo1234'), Date.now());
+  const id = db.prepare('SELECT id FROM users WHERE username = ?').get(u).id;
+  for (const p of ps) db.prepare('INSERT OR IGNORE INTO user_projects (user_id, project_id) VALUES (?, ?)').run(id, pid(p));
+}
 console.log(`已生成 ${devices.length} 台设备、${frames} 帧上报（${days} 天），数据库：${config.dbFile}`);
+console.log('演示账号：zhanggong / wanggong（运维）、leader（只读），密码均为 Demo1234；管理员 admin 首次启动自动创建');
 db.close();

@@ -2,10 +2,10 @@
   <div class="page detail" v-if="dev">
     <!-- 设备头部 -->
     <div class="card head">
-      <div class="photo" :class="{ empty: !dev.photo }" @click="pickPhoto" role="button" tabindex="0" :aria-label="dev.photo ? '更换设备照片' : '上传设备照片'" @keydown.enter="pickPhoto">
+      <div class="photo" :class="{ empty: !dev.photo, ro: !canWrite() }" @click="canWrite() && pickPhoto()" role="button" tabindex="0" :aria-label="dev.photo ? '更换设备照片' : '上传设备照片'" @keydown.enter="pickPhoto">
         <img v-if="dev.photo" :src="withToken(dev.photo)" alt="设备照片" />
-        <template v-else><el-icon :size="30"><Picture /></el-icon><span>上传照片</span></template>
-        <div v-if="dev.photo" class="photo-mask"><el-icon><Camera /></el-icon>更换</div>
+        <template v-else><el-icon :size="30"><Picture /></el-icon><span>{{ canWrite() ? '上传照片' : '暂无照片' }}</span></template>
+        <div v-if="dev.photo && canWrite()" class="photo-mask"><el-icon><Camera /></el-icon>更换</div>
         <input ref="fileIn" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhoto" />
       </div>
       <div class="head-main">
@@ -19,7 +19,7 @@
           </div>
           <div class="head-actions">
             <span class="muted small">最后上报：{{ dev.lastSeen ? fmtTime(dev.lastSeen) : '尚未上报' }}</span>
-            <el-button :icon="Edit" @click="editDlg.open(dev)">编辑档案</el-button>
+            <el-button v-if="canWrite()" :icon="Edit" @click="editDlg.open(dev)">编辑档案</el-button>
           </div>
         </div>
         <div class="addr" v-if="dev.location || dev.lat != null">
@@ -31,7 +31,7 @@
           <div v-for="f in infoFields" :key="f.label"><dt>{{ f.label }}</dt><dd :class="{ mono: f.mono }">{{ f.value || '-' }}</dd></div>
           <div>
             <dt>告警推送</dt>
-            <dd><el-switch :model-value="dev.alarmPush" size="small" @change="togglePush" /> <span class="muted small">{{ dev.alarmPush ? '开' : '关' }}</span></dd>
+            <dd><el-switch :model-value="dev.alarmPush" size="small" :disabled="!canWrite()" @change="togglePush" /> <span class="muted small">{{ dev.alarmPush ? '开' : '关' }}</span></dd>
           </div>
         </dl>
       </div>
@@ -178,7 +178,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="维保记录" name="maint" lazy>
-          <div class="filters"><el-button type="primary" :icon="Plus" @click="maintDlg.open({ deviceId: dev.id })">登记维保</el-button></div>
+          <div v-if="canWrite()" class="filters"><el-button type="primary" :icon="Plus" @click="maintDlg.open({ deviceId: dev.id })">登记维保</el-button></div>
           <el-table :data="maints" size="small" empty-text="暂无维保记录">
             <el-table-column label="维保时间" width="170"><template #default="{ row }">{{ fmtTime(row.ts) }}</template></el-table-column>
             <el-table-column prop="type" label="类型" width="110" />
@@ -196,7 +196,7 @@
           <el-alert type="info" :closable="false" show-icon class="mb">
             命令在设备下次上报时随应答下发（TCP / UDP / MQTT）。电信 AEP / 移动 OneNET 接入的设备需通过运营商平台缓存下发。
           </el-alert>
-          <div class="filters">
+          <div v-if="canWrite()" class="filters">
             <el-input v-model="cmdHex" placeholder="参数设置数据单元（十六进制），如 ff00" class="mono" style="width: 300px" clearable />
             <el-input v-model="cmdNote" placeholder="备注" style="width: 160px" clearable />
             <el-button type="primary" @click="addCmd()">加入下发队列</el-button>
@@ -230,7 +230,7 @@ import CommandTable from '../components/CommandTable.vue';
 import DeviceMap from '../components/DeviceMap.vue';
 import DeviceEditDialog from '../components/DeviceEditDialog.vue';
 import MaintenanceDialog from '../components/MaintenanceDialog.vue';
-import { api, loadTypes, withToken } from '../api.js';
+import { api, loadTypes, withToken, canWrite } from '../api.js';
 import { fmtTime, fmtSec, fmtDuration, fmtParam, fmtNum, fmtPct, hex, closedChannels, TRANSPORT, signalLevel } from '../utils/format.js';
 import { timeLine } from '../utils/charts.js';
 import { isDark, pal } from '../utils/theme.js';

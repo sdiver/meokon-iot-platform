@@ -54,6 +54,12 @@ export const config = {
   /** 第三方平台推送接口的校验 token（OneNET / AEP），为空不校验 */
   pushToken: env.PUSH_TOKEN || '',
 
+  /** 初始管理员 admin 的密码（仅在没有任何用户时使用；默认 admin123，首次登录强制修改） */
+  adminPassword: env.ADMIN_PASSWORD || '',
+  /** 登录页 */
+  loginSlogan: env.LOGIN_SLOGAN || '设备接入 · 实时监测 · 告警处置 · 数据分析',
+  copyright: env.COPYRIGHT || '',
+  icpNo: env.ICP_NO || '',
   /** 平台与地图 */
   platformName: env.PLATFORM_NAME || '物联网设备监测平台',
   screenTitle: env.SCREEN_TITLE || '设备监测数据大屏',

@@ -41,7 +41,7 @@
                   <span :class="a.open ? 'crit' : 'ok'">{{ a.open ? `报警中 ${fmtDuration(a.duration)}` : '已恢复' }}</span>
                   <span v-if="a.location" class="muted">{{ a.location }}</span>
                 </div>
-                <div class="tl-ops" @click.stop>
+                <div v-if="canWrite()" class="tl-ops" @click.stop>
                   <el-button size="small" text type="primary" @click="handle(a, 1)">已记录</el-button>
                   <el-button size="small" text type="primary" @click="handle(a, 2)">已处理</el-button>
                 </div>
@@ -76,7 +76,7 @@ import { ElMessage } from 'element-plus';
 import { CircleCheck } from '@element-plus/icons-vue';
 import VChart from '../components/VChart.vue';
 import DeviceMap from '../components/DeviceMap.vue';
-import { api, loadTypes } from '../api.js';
+import { api, loadTypes, canWrite } from '../api.js';
 import { fmtTime, fmtDuration } from '../utils/format.js';
 import { timeLine, categoryBar } from '../utils/charts.js';
 import { isDark, pal, STATUS_COLORS } from '../utils/theme.js';

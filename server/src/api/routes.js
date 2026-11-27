@@ -4,6 +4,8 @@ import express from 'express';
 import { decodeFrame, hexToBuffer } from '../protocol/decoder.js';
 import { buildDownlink, READ_ALL_CONFIG } from '../protocol/encoder.js';
 import { listDeviceTypes } from '../protocol/deviceTypes.js';
+import { requestContext, currentUser, currentScope } from '../services/scope.js';
+import { ROLES } from '../services/auth.js';
 
 const wrap = (fn) => (req, res, next) => {
   try {
@@ -33,17 +35,96 @@ export function extractPayload(v) {
   return null;
 }
 
-export function createApi({ config, ingest, query, stats, bus, transports, settings, notify, photoDir }) {
+export function createApi({ config, ingest, query, stats, bus, transports, settings, notify, photoDir, auth }) {
   const api = express.Router();
   api.use(express.json({ limit: '8mb' }));
 
-  // ---------- 鉴权（可选） ----------
-  api.use((req, res, next) => {
-    if (!config.authToken || req.path.startsWith('/push/') || req.path === '/health' || req.path === '/ui-config') return next();
+  // ---------- 登录与鉴权 ----------
+  const PUBLIC = (req) => req.path === '/health' || req.path === '/ui-config' || req.path.startsWith('/push/') || (req.path === '/auth/login' && req.method === 'POST');
+  /** 接口所需最低角色等级：1 只读 / 2 运维 / 3 管理员 */
+  const requiredLevel = (req) => {
+    const p = req.path;
+    const m = req.method;
+    if (p.startsWith('/settings') || p.startsWith('/admin') || p.startsWith('/users')) return 3;
+    if (p.startsWith('/projects')) return m === 'GET' ? 1 : 3;
+    if (m === 'GET' || p.startsWith('/auth/') || p.startsWith('/tools/')) return 1;
+    if (/^\/(devices|commands|maintenance|alarms)(\/|$)/.test(p)) return 2;
+    return 3;
+  };
+  const tokenOf = (req) => {
     const h = req.get('authorization') || '';
-    const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
-    if (token === config.authToken) return next();
-    res.status(401).json({ error: '未授权' });
+    return h.startsWith('Bearer ') ? h.slice(7) : req.query.token ? String(req.query.token) : '';
+  };
+  api.use((req, res, next) => {
+    if (PUBLIC(req)) return next();
+    const token = tokenOf(req);
+    let user = null;
+    // API 访问令牌（第三方系统调用）拥有管理员权限
+    if (config.authToken && token && token === config.authToken) user = { id: 0, username: 'api', name: 'API 令牌', role: 'admin', all_projects: 1, projects: [] };
+    else user = auth.userByToken(token);
+    if (!user) return res.status(401).json({ error: '未登录或登录已过期，请重新登录', code: 'UNAUTHORIZED' });
+    const allowWhileMustChange = req.path === '/auth/me' || req.path === '/auth/password' || req.path === '/auth/logout';
+    if (user.must_change && !allowWhileMustChange) return res.status(403).json({ error: '首次登录请先修改密码', code: 'MUST_CHANGE_PASSWORD' });
+    if ((ROLES[user.role]?.level ?? 0) < requiredLevel(req)) return res.status(403).json({ error: '当前账号没有此操作的权限', code: 'FORBIDDEN' });
+    let selected = req.get('x-project') || req.query._project || '';
+    try { selected = decodeURIComponent(selected); } catch { /* 原样使用 */ }
+    const scope = auth.scopeOf(user, selected || null);
+    requestContext.run({ user, scope, token }, next);
+  });
+
+  api.post('/auth/login', wrap((req, res) => {
+    const r = auth.login(req.body || {}, { ip: req.ip, userAgent: req.get('user-agent') });
+    res.json(r);
+  }));
+  api.get('/auth/me', (req, res) => {
+    const u = currentUser();
+    res.json({ user: u.id === 0 ? { ...u, roleName: '管理员', allProjects: true } : auth.publicUser(auth.userById(u.id)), scope: currentScope() });
+  });
+  api.post('/auth/logout', (req, res) => {
+    auth.logout(requestContext.getStore()?.token);
+    res.json({ ok: true });
+  });
+  api.post('/auth/password', wrap((req, res) => {
+    const u = currentUser();
+    if (!u.id) return res.status(400).json({ error: 'API 令牌无需修改密码' });
+    auth.changePassword(u.id, req.body?.oldPassword, req.body?.newPassword, requestContext.getStore()?.token);
+    res.json({ ok: true, user: auth.publicUser(auth.userById(u.id)) });
+  }));
+
+  // ---------- 用户管理（管理员） ----------
+  api.get('/users', wrap((req, res) => res.json(auth.listUsers(req.query))));
+  api.post('/users', wrap((req, res) => res.json(auth.createUser(req.body || {}))));
+  api.put('/users/:id', wrap((req, res) => res.json(auth.updateUser(Number(req.params.id), req.body || {}, currentUser()))));
+  api.delete('/users/:id', wrap((req, res) => {
+    auth.deleteUser(Number(req.params.id), currentUser());
+    res.json({ ok: true });
+  }));
+  api.post('/users/:id/reset-password', wrap((req, res) => {
+    auth.resetPassword(Number(req.params.id), req.body?.password);
+    res.json({ ok: true });
+  }));
+
+  // ---------- 项目管理 ----------
+  api.get('/projects', wrap((req, res) => res.json(auth.listProjects(currentScope(), query.allDevices()))));
+  api.get('/projects/:id', wrap((req, res) => {
+    const p = auth.listProjects(currentScope(), query.allDevices()).find((x) => x.id === Number(req.params.id));
+    if (!p) return res.status(404).json({ error: '项目不存在' });
+    const members = auth.listUsers().filter((u) => u.role !== 'admin' && !u.allProjects && u.projects.some((x) => x.id === p.id));
+    res.json({ ...p, deviceList: query.allDevices().filter((d) => d.project === p.name), memberList: members });
+  }));
+  api.post('/projects', wrap((req, res) => res.json({ id: auth.createProject(req.body || {}) })));
+  api.put('/projects/:id', wrap((req, res) => {
+    auth.updateProject(Number(req.params.id), req.body || {});
+    res.json({ ok: true });
+  }));
+  api.delete('/projects/:id', wrap((req, res) => res.json({ ok: true, name: auth.deleteProject(Number(req.params.id)) })));
+  api.put('/projects/:id/devices', wrap((req, res) => res.json({ count: auth.setProjectDevices(Number(req.params.id), req.body?.deviceIds) })));
+
+  // ---------- 单台设备接口：校验项目访问权限 ----------
+  api.use('/devices/:id', (req, res, next) => {
+    if (req.params.id === 'import' || req.params.id === 'export.csv') return next();
+    if (!query.getDevice(req.params.id)) return res.status(404).json({ error: '设备不存在或无权访问' });
+    next();
   });
 
   api.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
@@ -52,7 +133,7 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
     res.json({
       version: '1.0.0',
       protocol: 'MEOKON 智能无线终端通讯协议 V3.3',
-      authRequired: Boolean(config.authToken),
+      apiTokenEnabled: Boolean(config.authToken),
       tzOffsetHours: config.tzOffsetHours,
       offlineMinSec: config.offlineMinSec,
       offlineFactor: config.offlineFactor,
@@ -64,6 +145,7 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
   api.get('/ui-config', (req, res) => res.json({
     platformName: config.platformName,
     screenTitle: config.screenTitle,
+    login: { slogan: config.loginSlogan, copyright: config.copyright, icp: config.icpNo },
     tzOffsetHours: config.tzOffsetHours,
     map: {
       provider: config.mapProvider, tileUrl: config.mapTileUrl, tiandituKey: config.mapTiandituKey, screenStyle: config.mapScreenStyle,
@@ -348,7 +430,10 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
       'X-Accel-Buffering': 'no',
     });
     res.write('retry: 3000\n\n');
-    const send = (event) => (data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const scope = currentScope();
+    const projectOf = (id) => query.db.prepare('SELECT project FROM devices WHERE id = ?').get(id)?.project;
+    const visible = (data) => scope.all || !data?.deviceId || scope.projects.includes(projectOf(data.deviceId));
+    const send = (event) => (data) => { if (visible(data)) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
     const handlers = { frame: send('frame'), alarm: send('alarm'), command: send('command') };
     for (const [e, h] of Object.entries(handlers)) bus.on(e, h);
     const ping = setInterval(() => res.write(': ping\n\n'), 20000);

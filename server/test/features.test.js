@@ -15,7 +15,7 @@ const config = {
   mqttUrl: '', mqttUplinkTopic: 'GIOT-GW/UL/#', mqttDownlinkPrefix: 'GIOT-GW/DL/',
   dbFile: ':memory:', frameRetentionDays: 0, readingRetentionDays: 0,
   maxClockSkewSec: 3600, offlineMinSec: 1800, offlineFactor: 2.5, tzOffsetHours: 8,
-  authToken: '', pushToken: '', webDist: '/nonexistent',
+  authToken: 'test-api-token', pushToken: '', webDist: '/nonexistent',
   platformName: '测试平台', screenTitle: '测试大屏', mapProvider: 'amap', mapTileUrl: '', mapTiandituKey: '', mapScreenStyle: 'esri_dark', mapCenterLng: 121.47, mapCenterLat: 31.23, mapZoom: 12,
   notifyEnabled: false, notifyType: 'wecom', notifyUrl: '', notifySecret: '', notifyRecover: false, photoDir: '',
 };
@@ -25,7 +25,7 @@ const api = async (path, init = {}) => {
   const r = await fetch(`http://127.0.0.1:${config.httpPort}/api${path}`, {
     ...init,
     body: init.body ? JSON.stringify(init.body) : undefined,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: 'Bearer test-api-token' },
   });
   const ct = r.headers.get('content-type') || '';
   return { status: r.status, body: ct.includes('json') ? await r.json() : await r.text(), headers: r.headers };
@@ -38,7 +38,7 @@ test.after(async () => { await p.close(); });
 
 test('旧数据库自动迁移到新结构', () => {
   const db = openDatabase(':memory:');
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 2);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 3);
   const cols = db.prepare('PRAGMA table_info(alarms)').all().map((c) => c.name);
   assert.ok(cols.includes('status') && cols.includes('level'));
   db.close();
@@ -167,7 +167,7 @@ test('设备照片上传与读取', async () => {
   const r = await api('/devices/PRE000000001/photo', { method: 'POST', body: { dataUrl: png } });
   assert.equal(r.status, 200);
   assert.ok(r.body.photo);
-  const img = await fetch(`http://127.0.0.1:${config.httpPort}${r.body.photo}`);
+  const img = await fetch(`http://127.0.0.1:${config.httpPort}${r.body.photo}&token=test-api-token`);
   assert.equal(img.headers.get('content-type'), 'image/png');
   assert.equal((await api('/devices/PRE000000001/photo', { method: 'POST', body: { dataUrl: 'data:text/html;base64,AAAA' } })).status, 400);
   await api('/devices/PRE000000001/photo', { method: 'DELETE' });

@@ -6,7 +6,7 @@
         <div class="sub">换卡、换电池、维修等运维记录。修改设备 ICCID 或电量由低到高跳变时，平台会自动生成记录</div>
       </div>
       <div class="head-btns">
-        <el-button type="primary" :icon="Plus" @click="dlg.open()">登记维保</el-button>
+        <el-button v-if="canWrite()" type="primary" :icon="Plus" @click="dlg.open()">登记维保</el-button>
         <el-button :icon="Download" @click="exportCsv">导出</el-button>
       </div>
     </div>
@@ -38,8 +38,8 @@
         <el-table-column :label="q.type === '更换SIM卡' ? '新 ICCID' : '新值'" min-width="180"><template #default="{ row }"><span class="mono">{{ row.newValue || '-' }}</span></template></el-table-column>
         <el-table-column prop="note" label="说明" min-width="160" show-overflow-tooltip />
         <el-table-column label="维保时间" width="170"><template #default="{ row }">{{ fmtTime(row.ts) }}</template></el-table-column>
-        <el-table-column label="来源" width="96"><template #default="{ row }"><span class="small" :class="row.auto ? 'auto' : 'muted'">{{ row.auto ? '自动识别' : '人工登记' }}</span></template></el-table-column>
-        <el-table-column label="操作" width="76" fixed="right">
+        <el-table-column label="来源" width="120"><template #default="{ row }"><span class="small" :class="row.auto ? 'auto' : 'muted'">{{ row.auto ? '自动识别' : row.operator || '人工登记' }}</span></template></el-table-column>
+        <el-table-column v-if="canWrite()" label="操作" width="76" fixed="right">
           <template #default="{ row }">
             <el-popconfirm title="删除这条记录？" @confirm="remove(row.id)"><template #reference><el-button link type="danger">删除</el-button></template></el-popconfirm>
           </template>
@@ -59,7 +59,7 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Plus, Download, Search, Postcard, Odometer, Tools, Box, Files } from '@element-plus/icons-vue';
 import MaintenanceDialog from '../components/MaintenanceDialog.vue';
-import { api } from '../api.js';
+import { api, canWrite } from '../api.js';
 import { fmtTime } from '../utils/format.js';
 import { isMobile } from '../utils/responsive.js';
 import { debounce } from '../utils/stream.js';

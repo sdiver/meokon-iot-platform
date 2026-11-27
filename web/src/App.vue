@@ -17,7 +17,7 @@
     </header>
     <main class="m-main" :class="{ full: $route.meta.full }">
       <router-view v-slot="{ Component }">
-        <keep-alive include="Devices"><component :is="Component" :key="$route.fullPath" /></keep-alive>
+        <keep-alive include="Devices"><component :is="Component" :key="`${$route.fullPath}|${session.project}`" /></keep-alive>
       </router-view>
     </main>
     <nav class="m-tabbar" aria-label="主导航">
@@ -34,7 +34,7 @@
     </nav>
     <el-drawer v-model="moreOpen" direction="btt" size="auto" :with-header="false">
       <div class="m-more">
-        <template v-for="g in MENU" :key="g.key || g.path">
+        <template v-for="g in menu" :key="g.key || g.path">
           <div v-if="g.children" class="m-more-group">{{ g.title }}</div>
           <div class="m-more-grid" v-if="g.children">
             <router-link v-for="c in g.children" :key="c.path" :to="c.path" class="m-more-item">{{ c.title }}</router-link>
@@ -44,12 +44,23 @@
         <div class="m-more-grid">
           <router-link to="/" class="m-more-item">数据概览</router-link>
           <router-link to="/commands" class="m-more-item">远程配置</router-link>
+          <router-link to="/projects" class="m-more-item">项目管理</router-link>
           <router-link to="/statistics" class="m-more-item">统计分析</router-link>
           <router-link to="/screen" class="m-more-item">数据大屏</router-link>
         </div>
         <div class="m-more-foot">
+          <span>当前项目</span>
+          <ProjectSwitcher class="m-proj" />
+        </div>
+        <div class="m-more-foot">
           <span>深色模式</span>
           <el-switch v-model="isDark" />
+        </div>
+        <div class="m-user" v-if="session.user">
+          <span class="avatar">{{ initial }}</span>
+          <div class="m-user-txt"><b>{{ session.user.name || session.user.username }}</b><span>{{ session.user.username }} · {{ session.user.roleName }}</span></div>
+          <el-button size="small" @click="pwOpen = true">修改密码</el-button>
+          <el-button size="small" type="danger" plain @click="doLogout">退出</el-button>
         </div>
       </div>
     </el-drawer>
@@ -64,7 +75,7 @@
       </div>
       <el-scrollbar class="menu-scroll">
         <el-menu :default-active="active" :default-openeds="openeds" :collapse="collapsed" :collapse-transition="false" router class="menu">
-          <template v-for="g in MENU" :key="g.key || g.path">
+          <template v-for="g in menu" :key="g.key || g.path">
             <el-sub-menu v-if="g.children" :index="g.key">
               <template #title>
                 <el-icon><component :is="Icons[g.icon]" /></el-icon>
@@ -106,20 +117,42 @@
         <el-tooltip :content="isDark ? '切换浅色' : '切换深色'" placement="bottom">
           <button class="icon-btn" aria-label="切换深浅色" @click="isDark = !isDark"><el-icon :size="18"><component :is="isDark ? Icons.Sunny : Icons.Moon" /></el-icon></button>
         </el-tooltip>
+        <ProjectSwitcher class="proj" />
         <button class="msg-btn" @click="msgOpen = true">
           <el-icon :size="17"><Message /></el-icon>消息中心
           <span v-if="pending" class="badge">{{ pending > 99 ? '99+' : pending }}</span>
         </button>
+        <el-dropdown trigger="click" @command="onUserCmd">
+          <button class="user-btn" aria-label="账号菜单">
+            <span class="avatar">{{ initial }}</span>
+            <span class="u-txt"><b>{{ session.user?.name || session.user?.username }}</b><small>{{ session.user?.roleName }}</small></span>
+            <el-icon><ArrowDown /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <div class="u-head">
+                <b>{{ session.user?.name || session.user?.username }}</b>
+                <span>{{ session.user?.username }} · {{ session.user?.roleName }}</span>
+                <span>{{ session.user?.allProjects ? '可访问全部项目' : `项目：${session.user?.projects.map((p) => p.name).join('、') || '未分配'}` }}</span>
+              </div>
+              <el-dropdown-item command="pw" :icon="Icons.Key">修改密码</el-dropdown-item>
+              <el-dropdown-item v-if="isAdmin()" command="users" :icon="Icons.User">用户管理</el-dropdown-item>
+              <el-dropdown-item command="logout" :icon="Icons.SwitchButton" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-header>
       <el-main class="main" :class="{ full: $route.meta.full }">
         <router-view v-slot="{ Component }">
-          <keep-alive include="Devices"><component :is="Component" :key="$route.fullPath" /></keep-alive>
+          <keep-alive include="Devices"><component :is="Component" :key="`${$route.fullPath}|${session.project}`" /></keep-alive>
         </router-view>
       </el-main>
     </el-container>
   </el-container>
 
   <MessageCenter v-if="!$route.meta.bare" v-model="msgOpen" />
+  <ChangePasswordDialog v-if="!$route.meta.public" v-model="pwOpen" />
+  <ChangePasswordDialog v-if="!$route.meta.public && session.token" :model-value="session.mustChange" forced @done="onForcedDone" />
 </template>
 
 <script setup>
@@ -127,13 +160,15 @@ import { computed, ref, watch, onMounted, onBeforeUnmount, h } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElNotification } from 'element-plus';
 import * as Icons from '@element-plus/icons-vue';
-import { MoreFilled, Monitor, Message } from '@element-plus/icons-vue';
+import { MoreFilled, Monitor, Message, ArrowDown } from '@element-plus/icons-vue';
+import ProjectSwitcher from './components/ProjectSwitcher.vue';
+import ChangePasswordDialog from './components/ChangePasswordDialog.vue';
 import MessageCenter from './components/MessageCenter.vue';
 import { MENU } from './router.js';
 import { isDark } from './utils/theme.js';
 import { isMobile } from './utils/responsive.js';
 import { soundOn, playAlarm, unlockAudio } from './utils/alarmSound.js';
-import { api, ui, loadUiConfig } from './api.js';
+import { api, ui, loadUiConfig, session, isAdmin, logout } from './api.js';
 import { onStream, debounce } from './utils/stream.js';
 
 const Logo = (props) => h('svg', { viewBox: '0 0 32 32', width: props.size, height: props.size, 'aria-hidden': 'true' }, [
@@ -149,6 +184,20 @@ const router = useRouter();
 const collapsed = ref(window.innerWidth < 1100);
 const active = computed(() => route.meta.parent || route.path);
 const openeds = MENU.filter((g) => g.children).map((g) => g.key);
+/** 按角色过滤菜单 */
+const menu = computed(() => MENU.filter((g) => !g.admin || isAdmin()).map((g) => (g.children ? { ...g, children: g.children.filter((c) => !c.admin || isAdmin()) } : g)));
+const initial = computed(() => (session.user?.name || session.user?.username || '?').slice(0, 1).toUpperCase());
+const pwOpen = ref(false);
+async function doLogout() {
+  await logout();
+  router.replace('/login');
+}
+function onUserCmd(cmd) {
+  if (cmd === 'pw') pwOpen.value = true;
+  else if (cmd === 'users') router.push('/users');
+  else if (cmd === 'logout') doLogout();
+}
+function onForcedDone() { session.mustChange = false; router.replace(router.currentRoute.value.fullPath); }
 const crumbGroup = computed(() => MENU.find((g) => g.children?.some((c) => c.path === active.value))?.title);
 
 // 手机底部导航
@@ -168,6 +217,7 @@ const msgOpen = ref(false);
 const pending = ref(0);
 const liveOk = ref(false);
 const refreshPending = debounce(async () => {
+  if (!session.token || route.meta.public) return;
   try { pending.value = (await api.alarmSummary()).pending; } catch { /* ignore */ }
 }, 600);
 
@@ -200,6 +250,8 @@ onStream('alarm', (a) => {
 watch(() => [ui.platformName, route.meta.title], () => {
   document.title = `${route.meta.title || ''} · ${ui.platformName}`;
 });
+
+watch(() => [session.user?.id, session.project], () => { if (session.user) refreshPending(); });
 
 let timer;
 onMounted(() => {
@@ -250,6 +302,25 @@ onBeforeUnmount(() => clearInterval(timer));
 }
 .msg-btn:hover { border-color: var(--accent); color: var(--accent); }
 .msg-btn .badge { margin-left: 2px; }
+.proj { margin-left: 6px; }
+.user-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 4px; margin-left: 8px; border-radius: 20px;
+  border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--ink);
+}
+.user-btn:hover { background: var(--page-bg); }
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  background: linear-gradient(135deg, #3b95f5, #1b64be); color: #fff; font-weight: 700; font-size: 14px;
+}
+.u-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+.u-txt b { font-size: 13px; font-weight: 600; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-txt small { font-size: 11px; color: var(--ink-2); }
+.u-head { display: flex; flex-direction: column; gap: 2px; padding: 8px 16px 10px; border-bottom: 1px solid var(--el-border-color-lighter); margin-bottom: 4px; font-size: 12px; color: var(--el-text-color-secondary); max-width: 260px; }
+.u-head b { font-size: 14px; color: var(--el-text-color-primary); }
+.m-proj { flex: 0 1 200px; }
+.m-user { display: flex; align-items: center; gap: 8px; margin: 16px 4px 0; padding-top: 14px; border-top: 1px solid var(--hair); }
+.m-user-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; color: var(--ink-2); }
+.m-user-txt b { font-size: 14px; color: var(--ink); }
 .main { padding: 0; overflow-y: auto; }
 .main.full { overflow: hidden; }
 

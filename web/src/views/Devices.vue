@@ -6,8 +6,10 @@
         <div class="sub">共 {{ data.total }} 台设备 · 设备首次上报后自动登记，也可预先登记或批量导入档案</div>
       </div>
       <div class="head-btns">
-        <el-button type="primary" :icon="Plus" @click="editDlg.open(null)">新增设备</el-button>
-        <el-button :icon="Upload" @click="importDlg.open()">批量导入</el-button>
+        <template v-if="canWrite()">
+          <el-button type="primary" :icon="Plus" @click="editDlg.open(null)">新增设备</el-button>
+          <el-button :icon="Upload" @click="importDlg.open()">批量导入</el-button>
+        </template>
         <el-button :icon="Download" @click="exportAll">导出</el-button>
       </div>
     </div>
@@ -93,7 +95,7 @@
         <el-table-column label="操作" width="104" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="$router.push(`/devices/${row.id}`)">详情</el-button>
-            <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
+            <el-button v-if="canWrite()" link type="primary" @click.stop="openEdit(row)">编辑</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -117,12 +119,12 @@ import DeviceStatus from '../components/DeviceStatus.vue';
 import BatterySignal from '../components/BatterySignal.vue';
 import DeviceEditDialog from '../components/DeviceEditDialog.vue';
 import DeviceImportDialog from '../components/DeviceImportDialog.vue';
-import { api, loadTypes, withToken } from '../api.js';
+import { api, loadTypes, withToken, canWrite } from '../api.js';
 import { fmtAgo, fmtParam, TRANSPORT } from '../utils/format.js';
 import { onStream, debounce } from '../utils/stream.js';
 
 const route = useRoute();
-const q = reactive({ project: '', keyword: '', status: route.query.status || '', type: route.query.type !== undefined ? Number(route.query.type) : '', category: '', group: '', page: 1, size: 20 });
+const q = reactive({ project: route.query.project || '', keyword: '', status: route.query.status || '', type: route.query.type !== undefined ? Number(route.query.type) : '', category: '', group: '', page: 1, size: 20 });
 const data = ref({ total: 0, items: [] });
 const loading = ref(false);
 const types = ref(new Map());

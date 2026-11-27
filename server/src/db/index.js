@@ -145,6 +145,62 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_maintenance_time ON maintenance(ts);
     `);
   },
+  // v3：用户、会话、项目、操作人
+  (db) => {
+    const addCols = (table, cols) => {
+      const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+      for (const [name, def] of cols) if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+    };
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name          TEXT,
+        phone         TEXT,
+        email         TEXT,
+        role          TEXT NOT NULL DEFAULT 'viewer',   -- admin | operator | viewer
+        all_projects  INTEGER NOT NULL DEFAULT 0,       -- 1 = 可访问全部项目
+        password_hash TEXT NOT NULL,                    -- scrypt$salt$hash
+        must_change   INTEGER NOT NULL DEFAULT 0,       -- 1 = 下次登录需修改密码
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        remark        TEXT,
+        created_at    INTEGER NOT NULL,
+        last_login_at INTEGER,
+        last_login_ip TEXT
+      );
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        ip         TEXT,
+        user_agent TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+      CREATE TABLE IF NOT EXISTS projects (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE,
+        code        TEXT,
+        owner       TEXT,
+        contact     TEXT,
+        address     TEXT,
+        description TEXT,
+        created_at  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS user_projects (
+        user_id    INTEGER NOT NULL,
+        project_id INTEGER NOT NULL,
+        PRIMARY KEY (user_id, project_id)
+      ) WITHOUT ROWID;
+    `);
+    // 已有设备档案中的项目名称转为项目
+    const now = Date.now();
+    const ins = db.prepare('INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, ?)');
+    for (const r of db.prepare("SELECT DISTINCT project FROM devices WHERE project IS NOT NULL AND project <> ''").all()) ins.run(r.project, now);
+    addCols('alarms', [['handled_by', 'TEXT']]);
+    addCols('commands', [['created_by', 'TEXT']]);
+    addCols('maintenance', [['operator', 'TEXT']]);
+  },
 ];
 
 function migrate(db) {

@@ -1,50 +1,66 @@
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
+import { reactive } from 'vue';
 
 const TOKEN_KEY = 'meokon.token';
+const PROJECT_KEY = 'meokon.project';
+const store = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* ignore */ } };
+const load = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 
-export function getToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
-}
+/** 登录状态（全局共享） */
+export const session = reactive({
+  token: load(TOKEN_KEY),
+  user: null,
+  /** 顶部选择的项目，空字符串表示全部 */
+  project: load(PROJECT_KEY),
+  mustChange: false,
+});
+
+export function getToken() { return session.token; }
 export function setToken(t) {
-  try { localStorage.setItem(TOKEN_KEY, t); } catch { /* ignore */ }
+  session.token = t || '';
+  store(TOKEN_KEY, session.token);
+}
+export function setProject(p) {
+  session.project = p || '';
+  store(PROJECT_KEY, session.project);
 }
 
-let asking = null;
-async function askToken() {
-  if (!asking) {
-    asking = ElMessageBox.prompt('平台已开启访问控制，请输入访问令牌（AUTH_TOKEN）', '需要登录', {
-      inputType: 'password', confirmButtonText: '确定', showCancelButton: false, closeOnClickModal: false,
-    }).then(({ value }) => setToken(value)).finally(() => { asking = null; });
-  }
-  return asking;
-}
+/** 401 时由路由层处理跳转登录页 */
+let onUnauthorized = () => {};
+export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
-export async function request(path, { method = 'GET', body, query, silent } = {}) {
+export async function request(path, { method = 'GET', body, query, silent, noProject } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString() : '';
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const headers = { 'Content-Type': 'application/json' };
-    const t = getToken();
-    if (t) headers.Authorization = `Bearer ${t}`;
-    const res = await fetch(`/api${path}${qs}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) {
-      await askToken();
-      continue;
-    }
-    const data = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
-    if (!res.ok) {
-      const msg = data?.error || `请求失败 (${res.status})`;
-      if (!silent) ElMessage.error(msg);
-      throw new Error(msg);
-    }
-    return data;
+  const headers = { 'Content-Type': 'application/json' };
+  if (session.token) headers.Authorization = `Bearer ${session.token}`;
+  if (session.project && !noProject) headers['X-Project'] = encodeURIComponent(session.project);
+  const res = await fetch(`/api${path}${qs}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const data = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
+  if (res.status === 401 && path !== '/auth/login') {
+    setToken('');
+    session.user = null;
+    onUnauthorized();
+    throw new Error(data?.error || '未登录');
   }
-  throw new Error('未授权');
+  if (res.status === 403 && data?.code === 'MUST_CHANGE_PASSWORD') {
+    session.mustChange = true;
+    throw new Error(data.error);
+  }
+  if (!res.ok) {
+    const msg = data?.error || `请求失败 (${res.status})`;
+    if (!silent) ElMessage.error(msg);
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return data;
 }
 
-/** 带 token 的下载 / SSE 地址 */
+/** 带登录令牌与当前项目的下载 / 图片 / SSE 地址 */
 export function withToken(url) {
-  const t = getToken();
-  return t ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(t)}` : url;
+  if (!url) return url;
+  const parts = [];
+  if (session.token) parts.push(`token=${encodeURIComponent(session.token)}`);
+  if (session.project) parts.push(`_project=${encodeURIComponent(session.project)}`);
+  return parts.length ? `${url}${url.includes('?') ? '&' : '?'}${parts.join('&')}` : url;
 }
 
 export const api = {
@@ -84,6 +100,21 @@ export const api = {
   alarmTrend: (days) => request('/stats/alarm-trend', { query: { days } }),
   uiConfig: () => request('/ui-config', { silent: true }),
   notifyTest: () => request('/settings/notify-test', { method: 'POST' }),
+  login: (body) => request('/auth/login', { method: 'POST', body, silent: true }),
+  me: () => request('/auth/me', { silent: true }),
+  logout: () => request('/auth/logout', { method: 'POST', silent: true }),
+  changePassword: (oldPassword, newPassword) => request('/auth/password', { method: 'POST', body: { oldPassword, newPassword } }),
+  users: (q) => request('/users', { query: q }),
+  createUser: (body) => request('/users', { method: 'POST', body }),
+  updateUser: (id, body) => request(`/users/${id}`, { method: 'PUT', body }),
+  deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
+  resetUserPassword: (id, password) => request(`/users/${id}/reset-password`, { method: 'POST', body: { password } }),
+  projectList: (all = false) => request('/projects', { noProject: all }),
+  project: (id) => request(`/projects/${id}`),
+  createProject: (body) => request('/projects', { method: 'POST', body }),
+  updateProject: (id, body) => request(`/projects/${id}`, { method: 'PUT', body }),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+  setProjectDevices: (id, deviceIds) => request(`/projects/${id}/devices`, { method: 'PUT', body: { deviceIds } }),
   frames: (q) => request('/frames', { query: q }),
   alarms: (q) => request('/alarms', { query: q }),
   ackAlarm: (id, note) => request(`/alarms/${id}/ack`, { method: 'POST', body: { note } }),
@@ -104,13 +135,13 @@ export const api = {
 };
 
 // 界面配置（平台名称、地图），全局共享
-import { reactive } from 'vue';
 export const ui = reactive({
   loaded: false,
   platformName: '物联网设备监测平台',
   screenTitle: '设备监测数据大屏',
   tzOffsetHours: 8,
   map: { provider: 'amap', tileUrl: '', tiandituKey: '', screenStyle: 'esri_dark', center: [31.2304, 121.4737], zoom: 12 },
+  login: { slogan: '', copyright: '', icp: '' },
 });
 export async function loadUiConfig() {
   try {
@@ -124,4 +155,31 @@ let typesPromise = null;
 export function loadTypes() {
   if (!typesPromise) typesPromise = api.deviceTypes().then((list) => new Map(list.map((t) => [t.code, t]))).catch((e) => { typesPromise = null; throw e; });
   return typesPromise;
+}
+
+// ---------------- 登录用户与权限 ----------------
+const LEVEL = { admin: 3, operator: 2, viewer: 1 };
+/** 当前用户角色等级：1 只读 / 2 运维 / 3 管理员 */
+export const roleLevel = () => LEVEL[session.user?.role] ?? 0;
+export const canWrite = () => roleLevel() >= 2;
+export const isAdmin = () => roleLevel() >= 3;
+
+export async function loadMe() {
+  if (!session.token) return null;
+  try {
+    const r = await api.me();
+    session.user = r.user;
+    session.mustChange = !!r.user?.mustChange;
+    // 已选项目不在可访问范围内时清除
+    if (session.project && !r.user.allProjects && !r.user.projects.some((p) => p.name === session.project)) setProject('');
+    return r.user;
+  } catch {
+    return null;
+  }
+}
+
+export async function logout() {
+  try { await api.logout(); } catch { /* ignore */ }
+  setToken('');
+  session.user = null;
 }

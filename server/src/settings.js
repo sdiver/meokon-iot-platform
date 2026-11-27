@@ -21,12 +21,15 @@ export const SETTING_GROUPS = [
   { key: 'mqtt', title: 'MQTT 接入', desc: '报文为十六进制字符串。可使用内置 Broker 让设备直连平台，或连接外部 Broker 订阅设备数据' },
   { key: 'runtime', title: '运行参数', desc: '在线判定、时间校正与统计时区' },
   { key: 'retention', title: '数据保留', desc: '过期数据每 6 小时自动清理一次' },
-  { key: 'security', title: '访问安全', desc: '访问令牌与第三方推送校验' },
+  { key: 'security', title: '访问安全', desc: '接口访问令牌与第三方推送校验。用户账号请在“用户管理”中维护' },
 ];
 
 export const SETTING_DEFS = [
   { key: 'platformName', group: 'display', label: '平台名称', type: 'string', apply: 'runtime', required: true },
   { key: 'screenTitle', group: 'display', label: '数据大屏标题', type: 'string', apply: 'runtime', required: true },
+  { key: 'loginSlogan', group: 'display', label: '登录页标语', type: 'string', apply: 'runtime' },
+  { key: 'copyright', group: 'display', label: '版权信息', type: 'string', apply: 'runtime', placeholder: 'Copyright © 2026 公司名称', help: '显示在登录页底部' },
+  { key: 'icpNo', group: 'display', label: 'ICP 备案号', type: 'string', apply: 'runtime', placeholder: '如 沪ICP备XXXXXXXX号-1' },
   { key: 'mapProvider', group: 'display', label: '地图底图', ...select([
     ['amap', '高德地图（国内推荐）'], ['amap_sat', '高德卫星图'], ['tianditu_vec', '天地图（需申请 Key）'], ['tianditu_img', '天地图影像（需申请 Key）'],
     ['esri_street', 'Esri 街道图'], ['esri_img', 'Esri 卫星影像'], ['osm', 'OpenStreetMap'], ['custom', '自定义瓦片'],
@@ -71,7 +74,7 @@ export const SETTING_DEFS = [
   { key: 'frameRetentionDays', group: 'retention', label: '原始报文保留', unit: '天', ...int(0, 36500), apply: 'runtime', help: '0 表示永久保留' },
   { key: 'readingRetentionDays', group: 'retention', label: '采集数据保留', unit: '天', ...int(0, 36500), apply: 'runtime', help: '0 表示永久保留' },
 
-  { key: 'authToken', group: 'security', label: '平台访问令牌', type: 'string', secret: true, apply: 'runtime', help: '设置后访问 Web 与 API 需要输入该令牌；留空表示不校验' },
+  { key: 'authToken', group: 'security', label: 'API 访问令牌', type: 'string', secret: true, apply: 'runtime', help: '供第三方系统调用接口（Authorization: Bearer 令牌），拥有管理员权限；留空表示不启用。网页登录请使用用户账号' },
   { key: 'pushToken', group: 'security', label: '推送接口令牌', type: 'string', secret: true, apply: 'runtime', help: '设置后第三方推送地址需带 ?token=该值' },
 ];
 

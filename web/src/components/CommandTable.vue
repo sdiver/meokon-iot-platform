@@ -15,14 +15,14 @@
     <el-table-column v-if="showDevice" label="设备状态" width="92"><template #default="{ row }"><DeviceStatus v-if="row.deviceStatus" :status="row.deviceStatus" /></template></el-table-column>
     <el-table-column label="创建 / 下发 / 应答" min-width="200">
       <template #default="{ row }">
-        <div class="small">创建 {{ fmtTime(row.createdAt) }}</div>
+        <div class="small">创建 {{ fmtTime(row.createdAt) }}<span v-if="row.createdBy" class="muted"> · {{ row.createdBy }}</span></div>
         <div class="small muted" v-if="row.sentAt">下发 {{ fmtTime(row.sentAt) }} · {{ TRANSPORT[row.sentVia] || row.sentVia }}</div>
         <div class="small muted" v-if="row.ackAt">应答 {{ fmtTime(row.ackAt) }}</div>
       </template>
     </el-table-column>
     <el-table-column label="设备应答" min-width="130"><template #default="{ row }"><span class="mono break">{{ row.ackParams || '' }}</span></template></el-table-column>
     <el-table-column label="操作" width="80" fixed="right">
-      <template #default="{ row }"><el-button v-if="row.status === 'pending'" link type="danger" @click="cancel(row.id)">取消</el-button></template>
+      <template #default="{ row }"><el-button v-if="row.status === 'pending' && canWrite()" link type="danger" @click="cancel(row.id)">取消</el-button></template>
     </el-table-column>
   </el-table>
 </template>
@@ -30,7 +30,7 @@
 <script setup>
 import { ElMessage } from 'element-plus';
 import DeviceStatus from './DeviceStatus.vue';
-import { api } from '../api.js';
+import { api, canWrite } from '../api.js';
 import { fmtTime, TRANSPORT } from '../utils/format.js';
 
 defineProps({ items: Array, showDevice: Boolean, selectable: Boolean });

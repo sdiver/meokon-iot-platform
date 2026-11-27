@@ -5,7 +5,7 @@
         <h2>远程配置</h2>
         <div class="sub">配置命令在设备下次上报时随应答下发，设备应答（0x04）后标记为“已应答”</div>
       </div>
-      <el-button type="primary" :icon="Plus" @click="openBatch">新增配置</el-button>
+      <el-button v-if="canWrite()" type="primary" :icon="Plus" @click="openBatch">新增配置</el-button>
     </div>
     <div class="grid c4">
       <button v-for="s in STATS" :key="s.key" class="scard card" :class="{ on: q.status === s.key }" @click="q.status = q.status === s.key ? '' : s.key; reload()">
@@ -17,14 +17,14 @@
       <div class="filters">
         <el-input v-model="q.keyword" placeholder="设备编号 / 名称 / 备注" clearable :prefix-icon="Search" style="width: 240px" @input="search" />
         <div class="grow" />
-        <template v-if="selected.length">
+        <template v-if="selected.length && canWrite()">
           <span class="muted small">已选 {{ selected.length }} 条</span>
           <el-button @click="cancelSel">批量取消</el-button>
           <el-button type="danger" plain @click="deleteSel">批量删除</el-button>
         </template>
         <el-button :icon="Refresh" @click="load" aria-label="刷新" />
       </div>
-      <CommandTable :items="data.items" show-device selectable @select="(v) => (selected = v)" @changed="load" v-loading="loading" />
+      <CommandTable :items="data.items" show-device :selectable="canWrite()" @select="(v) => (selected = v)" @changed="load" v-loading="loading" />
       <div class="pager">
         <el-pagination v-model:current-page="q.page" v-model:page-size="q.size" :total="data.total" :page-sizes="[20, 50, 100]"
           :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'" :size="isMobile ? 'small' : 'default'" @change="load" />
@@ -68,7 +68,7 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Search, Refresh } from '@element-plus/icons-vue';
 import CommandTable from '../components/CommandTable.vue';
-import { api, loadTypes } from '../api.js';
+import { api, loadTypes, canWrite } from '../api.js';
 import { isMobile } from '../utils/responsive.js';
 import { onStream, debounce } from '../utils/stream.js';
 

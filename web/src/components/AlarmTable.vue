@@ -21,7 +21,7 @@
       </template>
       <el-button v-if="!compact" link type="primary" @click="showMore = !showMore">{{ showMore ? '收起筛选' : '更多筛选' }}</el-button>
       <div class="grow" />
-      <template v-if="selected.length">
+      <template v-if="selected.length && canWrite()">
         <span class="muted small">已选 {{ selected.length }} 条</span>
         <el-button @click="openHandle(selected, 1)">标为已记录</el-button>
         <el-button type="primary" @click="openHandle(selected, 2)">处理</el-button>
@@ -40,7 +40,7 @@
         </div>
         <div v-if="!deviceId" class="m-sub">{{ row.deviceName || row.deviceId }} · <span class="mono">{{ row.deviceId }}</span></div>
         <div class="m-sub">{{ fmtTime(row.startTs) }} · {{ row.open ? `报警中 ${fmtDuration(row.duration)}` : '已恢复' }}</div>
-        <div v-if="row.status < 2" class="m-ops" @click.stop>
+        <div v-if="row.status < 2 && canWrite()" class="m-ops" @click.stop>
           <el-button v-if="row.status === 0" size="small" @click="openHandle([row], 1)">已记录</el-button>
           <el-button size="small" type="primary" plain @click="openHandle([row], 2)">处理</el-button>
         </div>
@@ -50,7 +50,7 @@
 
     <!-- 桌面：表格 -->
     <el-table v-else :data="data.items" v-loading="loading" @selection-change="(v) => (selected = v)" row-key="id" empty-text="暂无告警">
-      <el-table-column type="selection" width="44" :selectable="(r) => r.status < 2" />
+      <el-table-column v-if="canWrite()" type="selection" width="44" :selectable="(r) => r.status < 2" />
       <el-table-column label="告警编号" min-width="170"><template #default="{ row }"><a class="link mono" @click="openView(row)">{{ row.code }}</a></template></el-table-column>
       <el-table-column v-if="!deviceId" label="设备" min-width="180">
         <template #default="{ row }">
@@ -73,7 +73,7 @@
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openView(row)">查看</el-button>
-          <el-button v-if="row.status < 2" link type="primary" @click="openHandle([row], 2)">处理</el-button>
+          <el-button v-if="row.status < 2 && canWrite()" link type="primary" @click="openHandle([row], 2)">处理</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -123,6 +123,7 @@
           <el-descriptions-item label="负责人">{{ view.row.owner || '-' }} {{ view.row.contact || '' }}</el-descriptions-item>
           <el-descriptions-item label="触发时数据">{{ valueText(view.row, view.row.snapshot, 8) || '-' }}</el-descriptions-item>
           <el-descriptions-item label="报警范围">{{ thresholdText(view.row) || '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="view.row.handledBy" label="处理人">{{ view.row.handledBy }}</el-descriptions-item>
           <el-descriptions-item label="当前数据">{{ valueText(view.row, view.row.deviceRealtime, 8) || '-' }}</el-descriptions-item>
         </el-descriptions>
         <div class="sec-title mt">处理记录</div>
@@ -133,7 +134,7 @@
             {{ HANDLE[view.row.status].text }}<div v-if="view.row.note" class="muted small">{{ view.row.note }}</div>
           </el-timeline-item>
         </el-timeline>
-        <div class="vw-ops" v-if="view.row.status < 2">
+        <div class="vw-ops" v-if="view.row.status < 2 && canWrite()">
           <el-button v-if="view.row.status === 0" @click="openHandle([view.row], 1)">标为已记录</el-button>
           <el-button type="primary" @click="openHandle([view.row], 2)">处理</el-button>
         </div>
@@ -148,7 +149,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Search, Download, Refresh } from '@element-plus/icons-vue';
 import DeviceStatus from './DeviceStatus.vue';
-import { api, loadTypes } from '../api.js';
+import { api, loadTypes, canWrite } from '../api.js';
 import { fmtTime, fmtDuration, fmtParam } from '../utils/format.js';
 import { isMobile } from '../utils/responsive.js';
 import { onStream, debounce } from '../utils/stream.js';

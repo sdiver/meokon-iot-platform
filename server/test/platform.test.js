@@ -16,13 +16,13 @@ const config = {
   mqttUrl: '', mqttUplinkTopic: 'GIOT-GW/UL/#', mqttDownlinkPrefix: 'GIOT-GW/DL/',
   dbFile: ':memory:', frameRetentionDays: 0, readingRetentionDays: 0,
   maxClockSkewSec: 3600, offlineMinSec: 1800, offlineFactor: 2.5, tzOffsetHours: 8,
-  authToken: '', pushToken: '', webDist: '/nonexistent',
+  authToken: 'test-api-token', pushToken: '', webDist: '/nonexistent',
 };
 
 let p;
 const api = async (path, init) => {
   const r = await fetch(`http://127.0.0.1:${config.httpPort}/api${path}`, {
-    ...init, headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
+    ...init, headers: { 'content-type': 'application/json', authorization: 'Bearer test-api-token', ...(init?.headers || {}) },
   });
   return r.headers.get('content-type')?.includes('json') ? r.json() : r.text();
 };
@@ -81,6 +81,7 @@ test('报警事件的产生、确认与恢复', async () => {
 
 test('UDP 上报 + 下行命令随应答下发 + 设备应答', async () => {
   const id = 'SHMK24060004';
+  await api('/devices', { method: 'POST', body: JSON.stringify({ id, name: '预先登记的液位计' }) });
   const cmd = await api(`/devices/${id}/commands`, { method: 'POST', body: JSON.stringify({ preset: 'readAll' }) });
   assert.ok(cmd.id);
   const frame = buildUplink({ deviceId: id, typeCode: 8, realtime: { level: 1.23 }, utc: nowSec() });

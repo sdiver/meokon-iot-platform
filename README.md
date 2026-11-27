@@ -19,6 +19,10 @@
   - 告警推送：企业微信 / 钉钉 / 飞书群机器人（支持加签）或自定义 Webhook，可推送恢复消息，设备级开关
   - 报警提示音、消息中心、实时弹窗
 - **统计分析**：每日趋势、报警类型 / 设备类型 / 时段分布、Top 报警设备、设备类型汇总、设备活跃度与成功率
+- **登录与权限**：账号密码登录（scrypt 加密存储，连续失败 5 次锁定 10 分钟，可选 7 天免登录）；首次登录 / 重置密码后强制修改密码；三种角色——管理员（全部权限）、运维人员（所属项目内维护设备、处理告警、下发配置）、只读用户（仅查看）
+- **用户管理**：新建 / 编辑 / 停用 / 删除用户，重置密码（立即强制下线），按项目分配访问权限；至少保留一个可用管理员
+- **项目管理**：项目档案（编号、负责人、地址、说明）、设备数 / 在线 / 报警统计、批量分配设备、改名自动同步设备档案；**数据按项目隔离**——用户只能看到所属项目的设备、报警、统计和实时推送；页面顶部可切换当前项目
+- **操作留痕**：告警处理人、配置下发人、维保登记人自动记录
 - **系统设置**：接入端口、MQTT、平台名称、大屏标题、地图底图（高德 / OSM / 自定义瓦片）、在线判定、数据保留、访问令牌、告警推送等均可在页面修改并即时生效；数据管理可清空演示数据
 - **手机适配**：底部导航 + 卡片列表布局，可“添加到主屏幕”像 App 一样使用；支持深色模式
 
@@ -45,6 +49,9 @@ npm run seed        # 可选：生成 28 台演示设备、7 天历史数据
 ```bash
 npm start           # http://localhost:8080
 ```
+
+首次启动会自动创建管理员账号 **admin / admin123**（可用环境变量 `ADMIN_PASSWORD` 指定），首次登录必须修改密码。
+执行过 `npm run seed` 的演示库另有演示账号：`zhanggong`、`wanggong`（运维人员，分别负责不同项目）、`leader`（只读，全部项目），密码均为 `Demo1234`。
 
 另开终端运行设备模拟器，通过 TCP / UDP / MQTT 实时上报：
 
@@ -114,7 +121,9 @@ docker compose up -d --build
 | `MAP_CENTER_LNG` / `MAP_CENTER_LAT` / `MAP_ZOOM` | 121.4737 / 31.2304 / 12 | 无设备坐标时的默认视野 |
 | `NOTIFY_ENABLED` / `NOTIFY_TYPE` / `NOTIFY_URL` / `NOTIFY_SECRET` | false / wecom / 空 / 空 | 告警推送（wecom、dingtalk、feishu、webhook） |
 | `PHOTO_DIR` | 数据库同目录 `photos/` | 设备照片存放目录 |
-| `AUTH_TOKEN` | 空 | 设置后 Web/API 需要访问令牌 |
+| `ADMIN_PASSWORD` | admin123 | 初始管理员 admin 的密码（仅在没有可用管理员时创建） |
+| `AUTH_TOKEN` | 空 | API 访问令牌：第三方系统以 `Authorization: Bearer 令牌` 调用接口，拥有管理员权限 |
+| `LOGIN_SLOGAN` / `COPYRIGHT` / `ICP_NO` | — | 登录页标语、版权信息、ICP 备案号 |
 | `PUSH_TOKEN` | 空 | 设置后推送接口需带 `?token=` |
 
 ## 协议实现要点
@@ -143,6 +152,9 @@ web/              Vue 3 + Element Plus + ECharts 前端
 
 | 接口 | 说明 |
 |---|---|
+| `POST /api/auth/login`、`GET /api/auth/me`、`POST /api/auth/logout`、`POST /api/auth/password` | 登录、当前用户、退出、修改密码；其余接口需 `Authorization: Bearer <令牌>`，可用 `X-Project` 头限定项目 |
+| `GET/POST/PUT/DELETE /api/users`、`POST /api/users/:id/reset-password` | 用户管理（管理员） |
+| `GET/POST/PUT/DELETE /api/projects`、`PUT /api/projects/:id/devices` | 项目管理、分配设备 |
 | `GET /api/devices` | 设备列表（keyword、status=online/offline/alarm/lowBattery、type、category、group、分页） |
 | `POST /api/devices`、`POST /api/devices/import`、`GET /api/devices/export.csv` | 预先登记 / 批量导入 / 导出设备档案 |
 | `GET/PUT/DELETE /api/devices/:id` | 设备详情 / 编辑档案 / 删除（`?purge=1` 同时删除历史数据） |

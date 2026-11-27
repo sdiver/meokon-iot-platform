@@ -9,7 +9,7 @@
         <el-button text :icon="Close" aria-label="关闭" @click="$emit('update:modelValue', false)" />
       </div>
       <div class="mc-actions" v-if="total">
-        <el-button size="small" @click="recordAll">全部标为已记录</el-button>
+        <el-button v-if="canWrite()" size="small" @click="recordAll">全部标为已记录</el-button>
         <el-button size="small" type="primary" plain @click="go('/alarms')">进入告警列表</el-button>
       </div>
       <el-scrollbar class="mc-list" v-loading="loading">
@@ -25,7 +25,7 @@
             <span v-if="!a.open" class="ok">已恢复</span>
             <span v-if="a.location">{{ a.location }}</span>
           </div>
-          <div class="mc-ops">
+          <div v-if="canWrite()" class="mc-ops">
             <el-button size="small" text type="primary" @click="handle(a, 1)">标为已记录</el-button>
             <el-button size="small" text type="primary" @click="handle(a, 2)">处理完成</el-button>
           </div>
@@ -41,7 +41,7 @@ import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Close } from '@element-plus/icons-vue';
-import { api } from '../api.js';
+import { api, canWrite } from '../api.js';
 import { fmtTime, fmtAgo } from '../utils/format.js';
 import { isMobile } from '../utils/responsive.js';
 import { onStream, debounce } from '../utils/stream.js';
