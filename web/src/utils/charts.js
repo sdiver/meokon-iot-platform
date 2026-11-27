@@ -3,8 +3,7 @@ import { fmtTime } from './format.js';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
-function base() {
-  const p = pal();
+function base(p = pal()) {
   return {
     color: p.series,
     backgroundColor: 'transparent',
@@ -49,15 +48,15 @@ function escapeHtml(s) {
  * @param {{series: Array<{name:string, data:Array<[number, number|null]>}>, unit?: string, area?: boolean, markLines?: Array<{name:string, value:number}>, timeFmt?: (ms:number)=>string, bar?: boolean}} o
  */
 export function timeLine(o) {
-  const p = pal();
+  const p = o.palette || pal();
   const multi = o.series.length > 1;
   const fmtT = o.timeFmt || ((ms) => fmtTime(ms, false));
   return {
-    ...base(),
+    ...base(p),
     grid: { left: 8, right: 16, top: multi ? 36 : 16, bottom: o.zoom ? 44 : 8, containLabel: true },
     legend: multi ? { top: 0, left: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 2, textStyle: { color: p.ink2 } } : undefined,
     tooltip: {
-      ...base().tooltip,
+      ...base(p).tooltip,
       trigger: 'axis',
       axisPointer: { type: o.bar ? 'shadow' : 'line', lineStyle: { color: p.axis }, shadowStyle: { color: 'rgba(127,127,127,.08)' } },
       formatter: (items) => {
@@ -102,17 +101,17 @@ export function timeLine(o) {
 }
 
 /** 类别条形图（默认水平，适合长类别名） */
-export function categoryBar(items, { horizontal = true, unit = '', color, colors, name = '数量' } = {}) {
-  const p = pal();
+export function categoryBar(items, { horizontal = true, unit = '', color, colors, name = '数量', palette } = {}) {
+  const p = palette || pal();
   const cats = items.map((i) => i.name);
   const vals = items.map((i, k) => ({ value: i.value, itemStyle: colors ? { color: colors[k] } : undefined }));
   const cat = { type: 'category', data: horizontal ? [...cats].reverse() : cats, ...axisStyle(p), splitLine: { show: false }, axisLine: { show: !horizontal, lineStyle: { color: p.axis } } };
   const val = { type: 'value', minInterval: 1, ...axisStyle(p), axisLine: { show: false } };
   return {
-    ...base(),
+    ...base(p),
     grid: { left: 8, right: 40, top: 8, bottom: 8, containLabel: true },
     tooltip: {
-      ...base().tooltip,
+      ...base(p).tooltip,
       trigger: 'item',
       formatter: (it) => `<div style="color:${p.ink2};margin-bottom:4px">${escapeHtml(it.name)}</div>${row(it.color, name, `${it.value}${unit}`)}`,
     },

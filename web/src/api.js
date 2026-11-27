@@ -62,10 +62,32 @@ export const api = {
   commands: (id) => request(`/devices/${encodeURIComponent(id)}/commands`),
   addCommand: (id, body) => request(`/devices/${encodeURIComponent(id)}/commands`, { method: 'POST', body }),
   cancelCommand: (cid) => request(`/commands/${cid}`, { method: 'DELETE' }),
+  createDevice: (body) => request('/devices', { method: 'POST', body }),
+  importDevices: (rows) => request('/devices/import', { method: 'POST', body: { rows } }),
+  devicesExportUrl: (q = {}) => withToken(`/api/devices/export.csv?${new URLSearchParams(q)}`),
+  projects: () => request('/device-projects'),
+  runtime: (id) => request(`/devices/${encodeURIComponent(id)}/runtime`),
+  locations: (id) => request(`/devices/${encodeURIComponent(id)}/locations`),
+  uploadPhoto: (id, dataUrl) => request(`/devices/${encodeURIComponent(id)}/photo`, { method: 'POST', body: { dataUrl } }),
+  deletePhoto: (id) => request(`/devices/${encodeURIComponent(id)}/photo`, { method: 'DELETE' }),
+  maintenance: (q) => request('/maintenance', { query: q }),
+  addMaintenance: (body) => request('/maintenance', { method: 'POST', body }),
+  deleteMaintenance: (id) => request(`/maintenance/${id}`, { method: 'DELETE' }),
+  maintenanceExportUrl: (q = {}) => withToken(`/api/maintenance/export.csv?${new URLSearchParams(q)}`),
+  commandList: (q) => request('/commands', { query: q }),
+  batchCommands: (body) => request('/commands/batch', { method: 'POST', body }),
+  cancelCommands: (ids) => request('/commands/cancel', { method: 'POST', body: { ids } }),
+  deleteCommands: (ids) => request('/commands/delete', { method: 'POST', body: { ids } }),
+  alarmSummary: () => request('/alarms/summary'),
+  handleAlarms: (ids, status, note) => request('/alarms/handle', { method: 'POST', body: { ids, status, note } }),
+  alarmsExportUrl: (q = {}) => withToken(`/api/alarms/export.csv?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== '' && v != null))}`),
+  alarmTrend: (days) => request('/stats/alarm-trend', { query: { days } }),
+  uiConfig: () => request('/ui-config', { silent: true }),
+  notifyTest: () => request('/settings/notify-test', { method: 'POST' }),
   frames: (q) => request('/frames', { query: q }),
   alarms: (q) => request('/alarms', { query: q }),
   ackAlarm: (id, note) => request(`/alarms/${id}/ack`, { method: 'POST', body: { note } }),
-  ackAll: (deviceId) => request('/alarms/ack-all', { method: 'POST', body: { deviceId } }),
+  ackAll: (deviceId, status = 1) => request('/alarms/ack-all', { method: 'POST', body: { deviceId, status } }),
   overview: () => request('/stats/overview'),
   trend: (days) => request('/stats/trend', { query: { days } }),
   hourly: () => request('/stats/hourly'),
@@ -80,6 +102,22 @@ export const api = {
   decode: (hex) => request('/tools/decode', { method: 'POST', body: { hex } }),
   downlink: (body) => request('/tools/downlink', { method: 'POST', body }),
 };
+
+// 界面配置（平台名称、地图），全局共享
+import { reactive } from 'vue';
+export const ui = reactive({
+  loaded: false,
+  platformName: '物联网设备监测平台',
+  screenTitle: '设备监测数据大屏',
+  tzOffsetHours: 8,
+  map: { provider: 'amap', tileUrl: '', center: [31.2304, 121.4737], zoom: 12 },
+});
+export async function loadUiConfig() {
+  try {
+    Object.assign(ui, await api.uiConfig(), { loaded: true });
+  } catch { /* 使用默认值 */ }
+  return ui;
+}
 
 // 设备类型字典缓存
 let typesPromise = null;

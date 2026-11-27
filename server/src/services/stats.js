@@ -38,7 +38,6 @@ export class StatsService {
     const fr = this.db.prepare("SELECT sum(direction = 'up' AND ok = 1) up, sum(direction = 'up' AND ok = 0) bad, sum(direction = 'down') down FROM frames WHERE received_at >= ?").get(today);
     const readingsToday = this.db.prepare('SELECT count(*) c FROM readings WHERE ts >= ?').get(Math.floor(today / 1000)).c;
     const alarmsToday = this.db.prepare('SELECT count(*) c FROM alarms WHERE start_ts >= ?').get(today).c;
-    const openAlarms = this.db.prepare('SELECT count(*) c, sum(acked = 0) u FROM alarms WHERE end_ts IS NULL').get();
     const totals = this.db.prepare('SELECT (SELECT count(*) FROM readings) r, (SELECT count(*) FROM frames) f, (SELECT count(*) FROM alarms) a').get();
     const battDevices = devices.filter((d) => d.battery.source === '电池' && d.battery.level != null);
 
@@ -50,6 +49,8 @@ export class StatsService {
         offline: devices.length - online,
         alarming: devices.filter((d) => d.alarming).length,
         lowBattery: battDevices.filter((d) => d.battery.level <= 20).length,
+        inactive: devices.filter((d) => d.neverSeen).length,
+        located: devices.filter((d) => d.lat != null && d.lng != null).length,
         weakSignal: devices.filter((d) => d.signal != null && d.signal < -105).length,
         onlineRate: devices.length ? online / devices.length : 0,
         newToday: devices.filter((d) => d.firstSeen >= today).length,
@@ -61,15 +62,18 @@ export class StatsService {
         readings: readingsToday,
         alarms: alarmsToday,
       },
-      alarms: { open: openAlarms.c ?? 0, unacked: openAlarms.u ?? 0 },
+      alarms: { ...this.query.alarmSummary(), unacked: this.query.alarmSummary().pending },
       totals: { readings: totals.r, frames: totals.f, alarms: totals.a },
       byType: countBy(devices, (d) => d.typeName),
       byCategory: countBy(devices, (d) => d.category),
+      byGroup: countBy(devices, (d) => d.groupName || '未分组'),
+      byProject: countBy(devices, (d) => d.project || '未设置项目'),
       byTransport: countBy(devices, (d) => d.transport),
       byStatus: [
         { name: '在线正常', value: devices.filter((d) => d.status === 'online').length },
         { name: '报警', value: devices.filter((d) => d.status === 'alarm').length },
         { name: '离线', value: devices.filter((d) => d.status === 'offline').length },
+        { name: '未上线', value: devices.filter((d) => d.status === 'inactive').length },
       ],
       byPower: countBy(devices, (d) => d.battery.mode),
       battery: BATTERY_LEVELS.map((l) => ({ name: l.name, value: battDevices.filter((d) => l.test(d.battery.level)).length })),

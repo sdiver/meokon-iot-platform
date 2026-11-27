@@ -31,6 +31,9 @@
               <el-tag v-if="it.source === 'platform'" size="small" effect="plain" class="src">已修改</el-tag>
             </template>
             <el-switch v-if="it.type === 'bool'" v-model="form[it.key]" />
+            <el-select v-else-if="it.type === 'select'" v-model="form[it.key]" class="str-in">
+              <el-option v-for="[k, label] in it.options" :key="k" :label="label" :value="k" />
+            </el-select>
             <el-input-number
               v-else-if="it.type === 'int' || it.type === 'number'" v-model="form[it.key]" :min="it.min" :max="it.max"
               :step="it.type === 'int' ? 1 : 0.5" :precision="it.type === 'int' ? 0 : undefined" controls-position="right" class="num-in" />
@@ -46,7 +49,13 @@
             <div v-if="it.help" class="help">{{ it.help }}</div>
           </el-form-item>
         </el-form>
+        <div v-if="g.key === 'notify' && data.notify" class="notify-st small">
+          <span class="dot" :class="data.notify.enabled ? 'good' : 'neutral'" />{{ data.notify.enabled ? '推送已启用' : '推送未启用' }}
+          · 成功 {{ data.notify.sent }} 次 · 失败 {{ data.notify.failed }} 次
+          <template v-if="data.notify.last"> · 最近一次 {{ data.notify.last.ok ? '成功' : `失败：${data.notify.last.error || data.notify.last.response || data.notify.last.status}` }}</template>
+        </div>
         <div class="actions">
+          <el-button v-if="g.key === 'notify'" :loading="testing" :disabled="!!dirtyKeys(g.key).length" @click="testNotify">发送测试消息</el-button>
           <span class="muted small" v-if="dirtyKeys(g.key).length">有 {{ dirtyKeys(g.key).length }} 项未保存</span>
           <el-button @click="revert(g.key)" :disabled="!dirtyKeys(g.key).length">撤销</el-button>
           <el-button type="primary" :loading="saving === g.key" :disabled="!dirtyKeys(g.key).length" @click="save(g.key)">保存</el-button>
@@ -87,7 +96,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import StatTile from '../components/StatTile.vue';
-import { api, setToken } from '../api.js';
+import { api, setToken, loadUiConfig } from '../api.js';
 import { fmtSec } from '../utils/format.js';
 import { isMobile } from '../utils/responsive.js';
 
@@ -97,6 +106,18 @@ const form = reactive({});
 const cleared = reactive({});
 const saving = ref('');
 const summary = ref(null);
+const testing = ref(false);
+async function testNotify() {
+  testing.value = true;
+  try {
+    const r = await api.notifyTest();
+    if (r.ok) ElMessage.success('测试消息已发送，请在群聊中查看');
+    else ElMessage.error({ message: `发送失败：${r.error || r.response || r.status}`, duration: 8000 });
+    load();
+  } finally {
+    testing.value = false;
+  }
+}
 
 function fill(d) {
   data.value = d;
@@ -150,6 +171,7 @@ async function save(g) {
     if ('authToken' in body) setToken(body.authToken || '');
     fill(r);
     report(r, g);
+    if (g === 'display') loadUiConfig();
   } finally {
     saving.value = '';
   }
@@ -204,6 +226,7 @@ const svcList = computed(() => {
 .unit { margin-left: 8px; }
 .clr { margin-left: 8px; }
 .help { width: 100%; font-size: 12px; color: var(--ink-2); line-height: 1.5; margin-top: 2px; }
+.notify-st { color: var(--ink-2); margin: 0 0 10px; }
 .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 .actions.left { justify-content: flex-start; margin-top: 16px; }
 .grid.tiles { margin-top: 4px; }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -10,6 +11,7 @@ import { StatsService } from './services/stats.js';
 import { createApi } from './api/routes.js';
 import { SettingsStore } from './settings.js';
 import { TransportManager } from './transports/manager.js';
+import { NotifyService } from './services/notify.js';
 
 const defaultLogger = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -29,11 +31,13 @@ export async function startPlatform(config, logger = defaultLogger) {
   const settings = new SettingsStore(db, config);
   const transports = new TransportManager({ config, ingest, logger });
   await transports.startAll();
+  const notify = new NotifyService({ config, query, bus, logger });
+  const photoDir = config.photoDir || (config.dbFile === ':memory:' ? path.join(os.tmpdir(), `iot-photos-${process.pid}`) : path.join(path.dirname(config.dbFile), 'photos'));
 
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
-  app.use('/api', createApi({ config, ingest, query, stats, bus, transports, settings }));
+  app.use('/api', createApi({ config, ingest, query, stats, bus, transports, settings, notify, photoDir }));
   if (fs.existsSync(config.webDist)) {
     app.use(express.static(config.webDist, { index: false, maxAge: '1h' }));
     app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(config.webDist, 'index.html')));
@@ -59,7 +63,7 @@ export async function startPlatform(config, logger = defaultLogger) {
   timer.unref();
 
   return {
-    db, bus, ingest, query, stats, server, settings, transports,
+    db, bus, ingest, query, stats, server, settings, transports, notify,
     async close() {
       clearInterval(timer);
       server.closeAllConnections?.();

@@ -11,7 +11,11 @@
 const int = (min, max) => ({ type: 'int', min, max });
 const num = (min, max) => ({ type: 'number', min, max });
 
+const select = (options) => ({ type: 'select', options });
+
 export const SETTING_GROUPS = [
+  { key: 'display', title: '平台与地图', desc: '平台名称、数据大屏标题与地图底图。高德底图使用 GCJ-02 坐标，平台会自动从 WGS84 换算' },
+  { key: 'notify', title: '告警推送', desc: '新报警推送到企业微信 / 钉钉 / 飞书群机器人或自定义 Webhook；设备档案中可单独关闭某台设备的推送' },
   { key: 'tcp', title: 'TCP 接入', desc: '设备作为 socket 客户端，以二进制报文上报；平台在 5 秒内应答' },
   { key: 'udp', title: 'UDP 接入', desc: '二进制报文，平台回复下行应答帧' },
   { key: 'mqtt', title: 'MQTT 接入', desc: '报文为十六进制字符串。可使用内置 Broker 让设备直连平台，或连接外部 Broker 订阅设备数据' },
@@ -21,6 +25,20 @@ export const SETTING_GROUPS = [
 ];
 
 export const SETTING_DEFS = [
+  { key: 'platformName', group: 'display', label: '平台名称', type: 'string', apply: 'runtime', required: true },
+  { key: 'screenTitle', group: 'display', label: '数据大屏标题', type: 'string', apply: 'runtime', required: true },
+  { key: 'mapProvider', group: 'display', label: '地图底图', ...select([['amap', '高德地图'], ['osm', 'OpenStreetMap'], ['custom', '自定义瓦片']]), apply: 'runtime' },
+  { key: 'mapTileUrl', group: 'display', label: '自定义瓦片地址', type: 'string', apply: 'runtime', placeholder: 'https://.../{z}/{x}/{y}.png', help: '仅“自定义瓦片”时使用，支持 {s} {z} {x} {y}；坐标按 WGS84 处理' },
+  { key: 'mapCenterLng', group: 'display', label: '默认中心经度', ...num(-180, 180), apply: 'runtime', help: '无设备坐标时地图的默认中心（WGS84）' },
+  { key: 'mapCenterLat', group: 'display', label: '默认中心纬度', ...num(-90, 90), apply: 'runtime' },
+  { key: 'mapZoom', group: 'display', label: '默认缩放级别', ...int(3, 18), apply: 'runtime' },
+
+  { key: 'notifyEnabled', group: 'notify', label: '启用告警推送', type: 'bool', apply: 'runtime' },
+  { key: 'notifyType', group: 'notify', label: '推送渠道', ...select([['wecom', '企业微信群机器人'], ['dingtalk', '钉钉群机器人'], ['feishu', '飞书群机器人'], ['webhook', '自定义 Webhook（JSON）']]), apply: 'runtime' },
+  { key: 'notifyUrl', group: 'notify', label: 'Webhook 地址', type: 'string', secret: true, apply: 'runtime', help: '机器人的完整 Webhook 地址（含 key / access_token）' },
+  { key: 'notifySecret', group: 'notify', label: '加签密钥', type: 'string', secret: true, apply: 'runtime', help: '钉钉 / 飞书机器人开启“加签”时填写，其他留空' },
+  { key: 'notifyRecover', group: 'notify', label: '推送报警恢复', type: 'bool', apply: 'runtime', help: '报警位清除时也推送一条恢复消息' },
+
   { key: 'tcpEnabled', group: 'tcp', label: '启用 TCP', type: 'bool', apply: 'tcp' },
   { key: 'tcpPort', group: 'tcp', label: 'TCP 端口', ...int(1, 65535), apply: 'tcp' },
   { key: 'tcpIdleCloseMs', group: 'tcp', label: '空闲断开时间', unit: '毫秒', ...int(1000, 600000), apply: 'runtime', help: '设备上报后无新数据多长时间主动断开连接（协议要求 5 秒）' },
@@ -74,9 +92,15 @@ function coerce(def, raw) {
     if (v < def.min || v > def.max) throw new SettingsError(`${def.label} 取值范围 ${def.min} ~ ${def.max}`);
     return v;
   }
+  if (def.type === 'select') {
+    const v = String(raw ?? '');
+    if (!def.options.some(([k]) => k === v)) throw new SettingsError(`${def.label} 取值无效`);
+    return v;
+  }
   const s = raw == null ? '' : String(raw).trim();
   if (s.length > 500) throw new SettingsError(`${def.label} 过长`);
   if (def.required && !s) throw new SettingsError(`${def.label} 不能为空`);
+  if ((def.key === 'notifyUrl' || def.key === 'mapTileUrl') && s && !/^https?:\/\/[^\s]+$/i.test(s)) throw new SettingsError(`${def.label} 应以 http:// 或 https:// 开头`);
   if (def.key === 'mqttUrl' && s && !/^(mqtts?|wss?|tcp|ssl):\/\/[^\s]+$/i.test(s)) throw new SettingsError('外部 Broker 地址格式应为 mqtt://host:port');
   return s;
 }

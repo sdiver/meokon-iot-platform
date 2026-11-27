@@ -2,24 +2,33 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>设备管理</h2>
-        <div class="sub">共 {{ data.total }} 台设备 · 设备首次上报后自动注册</div>
+        <h2>设备列表</h2>
+        <div class="sub">共 {{ data.total }} 台设备 · 设备首次上报后自动登记，也可预先登记或批量导入档案</div>
+      </div>
+      <div class="head-btns">
+        <el-button type="primary" :icon="Plus" @click="editDlg.open(null)">新增设备</el-button>
+        <el-button :icon="Upload" @click="importDlg.open()">批量导入</el-button>
+        <el-button :icon="Download" @click="exportAll">导出</el-button>
       </div>
     </div>
     <div class="card">
       <div class="filters">
-        <el-input v-model="q.keyword" placeholder="编号 / 名称 / 位置" clearable style="width: 220px" :prefix-icon="Search" @input="search" />
+        <el-input v-model="q.keyword" placeholder="编号 / 名称 / 位置 / 项目 / ICCID" clearable style="width: 220px" :prefix-icon="Search" @input="search" />
         <el-select v-model="q.status" placeholder="状态" clearable style="width: 120px" @change="search">
           <el-option label="在线" value="online" />
           <el-option label="离线" value="offline" />
           <el-option label="报警" value="alarm" />
           <el-option label="低电量" value="lowBattery" />
+          <el-option label="未上线" value="inactive" />
         </el-select>
         <el-select v-model="q.category" placeholder="类别" clearable style="width: 130px" @change="search">
           <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
         </el-select>
         <el-select v-model="q.type" placeholder="设备类型" clearable filterable style="width: 220px" @change="search">
           <el-option v-for="t in typeList" :key="t.code" :label="`${t.code} · ${t.name}`" :value="t.code" />
+        </el-select>
+        <el-select v-model="q.project" placeholder="项目" clearable style="width: 140px" @change="search">
+          <el-option v-for="g in projects" :key="g" :label="g" :value="g" />
         </el-select>
         <el-select v-model="q.group" placeholder="分组" clearable style="width: 140px" @change="search">
           <el-option v-for="g in groups" :key="g" :label="g" :value="g" />
@@ -49,34 +58,39 @@
         <el-empty v-if="!loading && !data.items.length" description="暂无设备，等待设备上报" />
       </div>
       <el-table v-else :data="data.items" v-loading="loading" @row-click="(r) => $router.push(`/devices/${r.id}`)" row-class-name="clickable" empty-text="暂无设备，等待设备上报">
-        <el-table-column label="状态" width="80"><template #default="{ row }"><DeviceStatus :status="row.status" /></template></el-table-column>
-        <el-table-column label="设备编号 / 名称" min-width="170">
+        <el-table-column label="设备" min-width="210">
           <template #default="{ row }">
-            <div class="mono">{{ row.id }}</div>
-            <div class="muted small">{{ row.name || '未命名' }}<template v-if="row.location"> · {{ row.location }}</template></div>
+            <div class="dev-cell">
+              <div class="thumb"><img v-if="row.photo" :src="withToken(row.photo)" alt="" /><el-icon v-else :size="18"><Cpu /></el-icon></div>
+              <div class="dev-txt">
+                <div class="dev-name">{{ row.name || row.id }}</div>
+                <div class="muted small mono">{{ row.id }}</div>
+              </div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="设备类型" min-width="150">
+        <el-table-column label="状态" min-width="110">
+          <template #default="{ row }">
+            <DeviceStatus :status="row.status" />
+            <div v-if="row.status === 'alarm'" class="alarm-txt small">{{ row.alarm.bits.map((b) => b.label).join('、') }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="型号 / 项目" min-width="140">
+          <template #default="{ row }">{{ row.model || '-' }}<div class="muted small">{{ row.project || row.groupName || '' }}</div></template>
+        </el-table-column>
+        <el-table-column label="设备类型" min-width="130">
           <template #default="{ row }">{{ row.typeName }}<div class="muted small">{{ row.category }} · 类型 {{ row.typeCode }}</div></template>
         </el-table-column>
-        <el-table-column label="当前数据" min-width="220">
+        <el-table-column label="当前数据" min-width="190">
           <template #default="{ row }">
             <div v-for="v in mainValues(row)" :key="v.k" class="val"><span class="muted">{{ v.name }}</span> <b class="num">{{ v.text }}</b> <span class="muted">{{ v.unit }}</span></div>
           </template>
         </el-table-column>
-        <el-table-column label="报警" min-width="120">
-          <template #default="{ row }">
-            <template v-if="row.alarm.bits.length">
-              <div v-for="b in row.alarm.bits" :key="b.bit" class="alarm-txt"><span class="dot critical" />{{ b.label }}</div>
-            </template>
-            <span v-else class="muted">-</span>
-          </template>
+        <el-table-column label="电量 / 信号" width="172"><template #default="{ row }"><BatterySignal :battery="row.battery" :signal="row.signal" /></template></el-table-column>
+        <el-table-column label="最后上报" width="112">
+          <template #default="{ row }">{{ row.lastSeen ? fmtAgo(row.lastSeen) : '尚未上报' }}<div class="muted small">{{ TRANSPORT[row.transport] || row.transport }}</div></template>
         </el-table-column>
-        <el-table-column label="电量 / 信号" width="190"><template #default="{ row }"><BatterySignal :battery="row.battery" :signal="row.signal" /></template></el-table-column>
-        <el-table-column label="最后上报" width="150">
-          <template #default="{ row }">{{ fmtAgo(row.lastSeen) }}<div class="muted small">{{ TRANSPORT[row.transport] || row.transport }}</div></template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="104" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="$router.push(`/devices/${row.id}`)">详情</el-button>
             <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
@@ -89,6 +103,7 @@
     </div>
 
     <DeviceEditDialog ref="editDlg" @saved="load" />
+    <DeviceImportDialog ref="importDlg" @done="load" />
   </div>
 </template>
 
@@ -97,21 +112,25 @@ import { isMobile } from '../utils/responsive.js';
 defineOptions({ name: 'Devices' });
 import { ref, reactive, computed, onMounted, onActivated } from 'vue';
 import { useRoute } from 'vue-router';
-import { Search, Refresh } from '@element-plus/icons-vue';
+import { Search, Refresh, Plus, Upload, Download, Cpu } from '@element-plus/icons-vue';
 import DeviceStatus from '../components/DeviceStatus.vue';
 import BatterySignal from '../components/BatterySignal.vue';
 import DeviceEditDialog from '../components/DeviceEditDialog.vue';
-import { api, loadTypes } from '../api.js';
+import DeviceImportDialog from '../components/DeviceImportDialog.vue';
+import { api, loadTypes, withToken } from '../api.js';
 import { fmtAgo, fmtParam, TRANSPORT } from '../utils/format.js';
 import { onStream, debounce } from '../utils/stream.js';
 
 const route = useRoute();
-const q = reactive({ keyword: '', status: route.query.status || '', type: route.query.type !== undefined ? Number(route.query.type) : '', category: '', group: '', page: 1, size: 20 });
+const q = reactive({ project: '', keyword: '', status: route.query.status || '', type: route.query.type !== undefined ? Number(route.query.type) : '', category: '', group: '', page: 1, size: 20 });
 const data = ref({ total: 0, items: [] });
 const loading = ref(false);
 const types = ref(new Map());
 const groups = ref([]);
 const editDlg = ref(null);
+const importDlg = ref(null);
+const projects = ref([]);
+function exportAll() { window.open(api.devicesExportUrl(Object.fromEntries(Object.entries(q).filter(([k, v]) => v !== '' && v != null && k !== 'page' && k !== 'size'))), '_blank'); }
 const typeList = computed(() => [...types.value.values()]);
 const categories = computed(() => [...new Set(typeList.value.map((t) => t.category))]);
 
@@ -135,6 +154,7 @@ onMounted(async () => {
   load();
   types.value = await loadTypes();
   groups.value = await api.groups();
+  projects.value = await api.projects();
 });
 onActivated(() => {
   if (route.query.status !== undefined && route.query.status !== q.status) { q.status = route.query.status; search(); }
@@ -142,9 +162,15 @@ onActivated(() => {
 </script>
 
 <style scoped>
+.head-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.dev-cell { display: flex; gap: 10px; align-items: center; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+.dev-txt { min-width: 0; }
+.dev-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .small { font-size: 12px; }
 .val { white-space: nowrap; font-size: 13px; }
-.alarm-txt { color: var(--critical); font-size: 13px; white-space: nowrap; }
+.alarm-txt { color: var(--critical); font-size: 13px; }
+.alarm-txt.small { font-size: 12px; margin-top: 3px; line-height: 1.3; }
 .m-vals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 8px; }
 .m-val { font-size: 12px; min-width: 0; }
 .m-val b { font-size: 16px; }

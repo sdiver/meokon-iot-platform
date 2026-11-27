@@ -54,5 +54,22 @@ export const config = {
   /** 第三方平台推送接口的校验 token（OneNET / AEP），为空不校验 */
   pushToken: env.PUSH_TOKEN || '',
 
+  /** 平台与地图 */
+  platformName: env.PLATFORM_NAME || '物联网设备监测平台',
+  screenTitle: env.SCREEN_TITLE || '设备监测数据大屏',
+  mapProvider: env.MAP_PROVIDER || 'amap',
+  mapTileUrl: env.MAP_TILE_URL || '',
+  mapCenterLng: num(env.MAP_CENTER_LNG, 121.4737),
+  mapCenterLat: num(env.MAP_CENTER_LAT, 31.2304),
+  mapZoom: num(env.MAP_ZOOM, 12),
+  /** 告警推送 */
+  notifyEnabled: bool(env.NOTIFY_ENABLED, false),
+  notifyType: env.NOTIFY_TYPE || 'wecom',
+  notifyUrl: env.NOTIFY_URL || '',
+  notifySecret: env.NOTIFY_SECRET || '',
+  notifyRecover: bool(env.NOTIFY_RECOVER, false),
+  /** 设备照片目录 */
+  photoDir: env.PHOTO_DIR || '',
+
   webDist: env.WEB_DIST || path.resolve(root, '..', 'web', 'dist'),
 };

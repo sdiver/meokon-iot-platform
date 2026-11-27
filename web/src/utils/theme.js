@@ -37,3 +37,5 @@ watch(isDark, (v) => {
 }, { immediate: true });
 
 export const pal = () => (isDark.value ? PALETTE.dark : PALETTE.light);
+/** 数据大屏专用：深色背景上的配色 */
+export const SCREEN_PALETTE = { ...PALETTE.dark, surface: '#0b1a33', ink: '#dce8ff', ink2: '#7f95b5', grid: 'rgba(90,160,255,0.12)', axis: 'rgba(90,160,255,0.25)' };

@@ -1,5 +1,5 @@
 <template>
-  <div class="card">
+  <div :class="{ card: !flat }">
     <div class="filters">
       <el-input v-if="!deviceId" v-model="q.deviceId" placeholder="设备编号" clearable style="width: 180px" @change="reload" />
       <el-select v-model="q.direction" placeholder="方向" clearable style="width: 130px" @change="reload">
@@ -60,7 +60,7 @@ import DecodedView from './DecodedView.vue';
 import { api } from '../api.js';
 import { fmtTime, TRANSPORT } from '../utils/format.js';
 
-const props = defineProps({ deviceId: String });
+const props = defineProps({ deviceId: String, flat: Boolean });
 const q = reactive({ deviceId: props.deviceId || '', direction: '', ok: '', page: 1, size: 20 });
 const data = ref({ total: 0, items: [] });
 const loading = ref(false);

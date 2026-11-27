@@ -1,15 +1,10 @@
 <template>
-  <span class="st"><span class="dot" :class="cls" />{{ text }}</span>
+  <span class="st-tag" :class="status">{{ text }}</span>
 </template>
 
 <script setup>
 import { computed } from 'vue';
 const props = defineProps({ status: String });
-const map = { online: ['good', '在线'], alarm: ['critical', '报警'], offline: ['neutral', '离线'] };
-const cls = computed(() => map[props.status]?.[0] ?? 'neutral');
-const text = computed(() => map[props.status]?.[1] ?? '-');
+const TEXT = { online: '在线', alarm: '报警', offline: '离线', inactive: '未上线' };
+const text = computed(() => TEXT[props.status] ?? '-');
 </script>
-
-<style scoped>
-.st { white-space: nowrap; }
-</style>

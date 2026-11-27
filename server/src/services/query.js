@@ -11,6 +11,18 @@ const safeKey = (k) => {
   return k;
 };
 
+const badRequest = (msg) => Object.assign(new Error(msg), { status: 400 });
+const toMs = (v) => (Number(v) < 1e11 ? Number(v) * 1000 : Number(v));
+
+export const MAINT_TYPES = ['更换SIM卡', '更换电池', '维修', '安装', '巡检', '其他'];
+
+/** API 字段 → 数据库列 */
+export const ARCHIVE_FIELDS = {
+  name: 'name', location: 'location', groupName: 'group_name', remark: 'remark', lat: 'lat', lng: 'lng',
+  model: 'model', alias: 'alias', project: 'project', owner: 'owner', contact: 'contact', assetNo: 'asset_no',
+  imei: 'imei', iccid: 'iccid', hwVersion: 'hw_version', swVersion: 'sw_version', commType: 'comm_type', alarmPush: 'alarm_push',
+};
+
 export class QueryService {
   constructor(db, config) {
     this.db = db;
@@ -35,8 +47,9 @@ export class QueryService {
   mapDevice(row, now = Date.now()) {
     const def = getDeviceType(row.type_code);
     const offlineAfter = this.offlineAfterSec(row);
-    const online = now - row.last_seen <= offlineAfter * 1000;
-    const alarming = (row.alarm_raw ?? 0) !== 0;
+    const neverSeen = !row.last_seen;
+    const online = !neverSeen && now - row.last_seen <= offlineAfter * 1000;
+    const alarming = online && (row.alarm_raw ?? 0) !== 0;
     return {
       id: row.id,
       name: row.name,
@@ -46,48 +59,60 @@ export class QueryService {
       lat: row.lat,
       lng: row.lng,
       typeCode: row.type_code,
-      typeName: row.type_name,
+      typeName: row.type_name || (row.type_code == null ? null : def?.name),
       category: def?.category ?? '其他',
-      firstSeen: row.first_seen,
-      lastSeen: row.last_seen,
+      firstSeen: row.first_seen || null,
+      lastSeen: row.last_seen || null,
       lastUtc: row.last_utc,
+      createdAt: row.created_at ?? row.first_seen,
       transport: row.transport,
       remote: row.remote,
       battery: { raw: row.battery_raw, level: row.battery_level, source: row.power_source, mode: row.power_mode },
       signal: row.signal,
+      minSignal: row.min_signal,
       interval: row.interval_sec,
       recordCount: row.record_count,
       alarm: { raw: row.alarm_raw ?? 0, bits: json(row.alarm_bits, []) },
       alarmParams: json(row.alarm_params, []),
       realtime: json(row.realtime, {}),
       frameCount: row.frame_count,
+      // 档案信息
+      model: row.model, alias: row.alias, project: row.project, owner: row.owner, contact: row.contact,
+      assetNo: row.asset_no, imei: row.imei, iccid: row.iccid, hwVersion: row.hw_version, swVersion: row.sw_version,
+      commType: row.comm_type, alarmPush: row.alarm_push !== 0,
+      photo: row.photo ? `/api/devices/${encodeURIComponent(row.id)}/photo?v=${encodeURIComponent(row.photo)}` : null,
       online,
       alarming,
-      status: !online ? 'offline' : alarming ? 'alarm' : 'online',
+      neverSeen,
+      status: neverSeen ? 'inactive' : !online ? 'offline' : alarming ? 'alarm' : 'online',
       offlineAfter,
     };
   }
 
   allDevices(now = Date.now()) {
-    return this.db.prepare('SELECT * FROM devices ORDER BY last_seen DESC').all().map((r) => this.mapDevice(r, now));
+    return this.db.prepare('SELECT * FROM devices ORDER BY last_seen DESC, created_at DESC').all().map((r) => this.mapDevice(r, now));
   }
 
   listDevices(q = {}) {
     let list = this.allDevices();
     const kw = (q.keyword || '').trim().toLowerCase();
     if (kw) {
-      list = list.filter((d) => [d.id, d.name, d.location, d.groupName, d.typeName, d.remark].some((v) => v && String(v).toLowerCase().includes(kw)));
+      list = list.filter((d) => [d.id, d.name, d.location, d.groupName, d.typeName, d.remark, d.model, d.alias, d.project, d.owner, d.assetNo, d.imei, d.iccid]
+        .some((v) => v && String(v).toLowerCase().includes(kw)));
     }
     if (q.type !== undefined && q.type !== '') list = list.filter((d) => d.typeCode === Number(q.type));
     if (q.category) list = list.filter((d) => d.category === q.category);
     if (q.group) list = list.filter((d) => d.groupName === q.group);
+    if (q.project) list = list.filter((d) => d.project === q.project);
+    if (q.located === '1') list = list.filter((d) => d.lat != null && d.lng != null);
     if (q.status === 'online') list = list.filter((d) => d.online);
     else if (q.status === 'offline') list = list.filter((d) => !d.online);
     else if (q.status === 'alarm') list = list.filter((d) => d.alarming);
-    else if (q.status === 'lowBattery') list = list.filter((d) => d.battery.source === '电池' && d.battery.level <= 20);
+    else if (q.status === 'inactive') list = list.filter((d) => d.neverSeen);
+    else if (q.status === 'lowBattery') list = list.filter((d) => d.battery.source === '电池' && d.battery.level != null && d.battery.level <= 20);
     const total = list.length;
     const page = Math.max(1, Number(q.page) || 1);
-    const size = Math.min(500, Math.max(1, Number(q.size) || 20));
+    const size = Math.min(2000, Math.max(1, Number(q.size) || 20));
     return { total, page, size, items: list.slice((page - 1) * size, page * size) };
   }
 
@@ -96,26 +121,171 @@ export class QueryService {
     return row ? this.mapDevice(row) : null;
   }
 
-  updateDevice(id, patch) {
-    const fields = { name: 'name', location: 'location', groupName: 'group_name', remark: 'remark', lat: 'lat', lng: 'lng' };
-    const sets = [];
-    const vals = [];
-    for (const [k, col] of Object.entries(fields)) {
+  /** 校验并转换档案字段 */
+  archiveColumns(patch) {
+    const out = [];
+    for (const [k, col] of Object.entries(ARCHIVE_FIELDS)) {
       if (patch[k] === undefined) continue;
-      sets.push(`${col} = ?`);
-      let v = patch[k] === '' ? null : patch[k];
-      if ((k === 'lat' || k === 'lng') && v !== null) v = Number(v);
-      vals.push(v);
+      let v = patch[k];
+      if (k === 'lat' || k === 'lng') {
+        v = v === '' || v === null ? null : Number(v);
+        if (v !== null && (!Number.isFinite(v) || (k === 'lat' ? Math.abs(v) > 90 : Math.abs(v) > 180))) throw badRequest(`${k === 'lat' ? '纬度' : '经度'}超出范围`);
+      } else if (k === 'alarmPush') {
+        v = v === false || v === 0 || v === '0' || v === 'false' || v === '关' ? 0 : 1;
+      } else {
+        v = v === null ? null : String(v).trim().slice(0, 200) || null;
+      }
+      out.push([col, v]);
     }
-    if (sets.length) this.db.prepare(`UPDATE devices SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+    return out;
+  }
+
+  updateDevice(id, patch, { now = Date.now() } = {}) {
+    const before = this.db.prepare('SELECT lat, lng, iccid FROM devices WHERE id = ?').get(id);
+    if (!before) return null;
+    const cols = this.archiveColumns(patch);
+    if (cols.length) this.db.prepare(`UPDATE devices SET ${cols.map(([c]) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map(([, v]) => v), id);
+    const after = this.db.prepare('SELECT lat, lng, iccid, location FROM devices WHERE id = ?').get(id);
+    if (after.lat != null && after.lng != null && (after.lat !== before.lat || after.lng !== before.lng)) {
+      this.db.prepare("INSERT INTO locations (device_id, ts, lat, lng, source, address) VALUES (?, ?, ?, ?, 'manual', ?)").run(id, now, after.lat, after.lng, after.location);
+    }
+    if (before.iccid && after.iccid && before.iccid !== after.iccid && !patch._skipMaint) {
+      this.db.prepare("INSERT INTO maintenance (device_id, type, old_value, new_value, note, ts) VALUES (?, '更换SIM卡', ?, ?, '修改设备档案时记录', ?)").run(id, before.iccid, after.iccid, now);
+    }
     return this.getDevice(id);
+  }
+
+  /** 预先登记设备（设备尚未上报） */
+  createDevice(body, now = Date.now()) {
+    const id = String(body?.id ?? '').trim();
+    if (!/^[\x21-\x7e]{1,12}$/.test(id)) throw badRequest('设备编号为 1~12 位字母、数字或符号');
+    if (this.db.prepare('SELECT 1 FROM devices WHERE id = ?').get(id)) throw Object.assign(new Error(`设备 ${id} 已存在`), { status: 409 });
+    let typeCode = null;
+    let typeName = null;
+    if (body.typeCode !== undefined && body.typeCode !== null && body.typeCode !== '') {
+      const def = getDeviceType(Number(body.typeCode));
+      if (!def) throw badRequest('设备类型不存在');
+      typeCode = def.code;
+      typeName = def.name;
+    }
+    this.db.prepare('INSERT INTO devices (id, first_seen, last_seen, created_at, type_code, type_name, frame_count) VALUES (?, 0, 0, ?, ?, ?, 0)').run(id, now, typeCode, typeName);
+    return this.updateDevice(id, body, { now });
+  }
+
+  /** 批量导入档案：已存在则更新，不存在则登记 */
+  importDevices(rows, now = Date.now()) {
+    if (!Array.isArray(rows) || !rows.length) throw badRequest('没有可导入的数据');
+    if (rows.length > 5000) throw badRequest('单次最多导入 5000 行');
+    const result = { created: 0, updated: 0, errors: [] };
+    this.db.exec('BEGIN');
+    try {
+      rows.forEach((r, i) => {
+        try {
+          const id = String(r.id ?? '').trim();
+          if (this.db.prepare('SELECT 1 FROM devices WHERE id = ?').get(id)) {
+            this.updateDevice(id, r, { now });
+            result.updated++;
+          } else {
+            this.createDevice(r, now);
+            result.created++;
+          }
+        } catch (e) {
+          result.errors.push({ row: i + 2, id: r.id ?? '', error: e.message });
+        }
+      });
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    return result;
   }
 
   deleteDevice(id, purge = false) {
     this.db.prepare('DELETE FROM devices WHERE id = ?').run(id);
     if (purge) {
-      for (const t of ['readings', 'frames', 'alarms', 'commands']) this.db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
+      for (const t of ['readings', 'frames', 'alarms', 'commands', 'locations', 'maintenance']) this.db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
     }
+  }
+
+  setPhoto(id, name) {
+    this.db.prepare('UPDATE devices SET photo = ? WHERE id = ?').run(name, id);
+  }
+
+  projects() {
+    return this.db.prepare("SELECT DISTINCT project AS p FROM devices WHERE project IS NOT NULL AND project <> '' ORDER BY p").all().map((r) => r.p);
+  }
+
+  /** 运行信息 */
+  deviceRuntime(id) {
+    const dev = this.getDevice(id);
+    if (!dev) return null;
+    const f = this.db.prepare("SELECT count(*) total, sum(ok) ok, min(received_at) first, max(received_at) last, sum(record_count) records FROM frames WHERE device_id = ? AND direction = 'up'").get(id);
+    const down = this.db.prepare("SELECT count(*) c FROM frames WHERE device_id = ? AND direction = 'down'").get(id).c;
+    const recent = this.db.prepare("SELECT received_at t FROM frames WHERE device_id = ? AND direction = 'up' AND ok = 1 ORDER BY received_at DESC LIMIT 50").all(id).map((r) => r.t);
+    let avgUpload = null;
+    if (recent.length > 1) avgUpload = Math.round((recent[0] - recent[recent.length - 1]) / (recent.length - 1) / 1000);
+    const readings = this.db.prepare('SELECT count(*) c FROM readings WHERE device_id = ?').get(id).c;
+    const alarms = this.db.prepare('SELECT count(*) total, sum(status = 0) pending FROM alarms WHERE device_id = ?').get(id);
+    return {
+      battery: dev.battery, signal: dev.signal, minSignal: dev.minSignal,
+      uploads: f.total, uploadsOk: f.ok ?? 0, successRate: f.total ? (f.ok ?? 0) / f.total : null,
+      downlinks: down, readings, records: f.records ?? 0,
+      firstUpload: f.first, lastUpload: f.last, avgUploadSec: avgUpload,
+      interval: dev.interval, recordCount: dev.recordCount,
+      expectedUploadSec: dev.interval ? dev.interval * Math.max(1, dev.recordCount || 1) : null,
+      runDays: dev.firstSeen ? Math.max(0, (Date.now() - dev.firstSeen) / 86400000) : null,
+      alarms: alarms.total, pendingAlarms: alarms.pending ?? 0,
+      transport: dev.transport, remote: dev.remote, lastUtc: dev.lastUtc,
+    };
+  }
+
+  /** 设备轨迹 */
+  locations(id, { limit = 200 } = {}) {
+    return this.db.prepare('SELECT ts, lat, lng, source, address FROM locations WHERE device_id = ? ORDER BY ts DESC LIMIT ?').all(id, Math.min(2000, Number(limit) || 200));
+  }
+
+  // ---------------- 维保记录 ----------------
+
+  maintenance({ deviceId, type, from, to, page = 1, size = 20 } = {}) {
+    const where = [];
+    const args = [];
+    if (deviceId) { where.push('m.device_id LIKE ?'); args.push(`%${deviceId}%`); }
+    if (type) { where.push('m.type = ?'); args.push(type); }
+    if (from) { where.push('m.ts >= ?'); args.push(toMs(from)); }
+    if (to) { where.push('m.ts <= ?'); args.push(toMs(to)); }
+    const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    size = Math.min(5000, Math.max(1, Number(size) || 20));
+    page = Math.max(1, Number(page) || 1);
+    const total = this.db.prepare(`SELECT count(*) c FROM maintenance m ${w}`).get(...args).c;
+    const items = this.db.prepare(`SELECT m.*, d.name device_name, d.model FROM maintenance m LEFT JOIN devices d ON d.id = m.device_id ${w} ORDER BY m.ts DESC, m.id DESC LIMIT ? OFFSET ?`)
+      .all(...args, size, (page - 1) * size)
+      .map((r) => ({ id: r.id, deviceId: r.device_id, deviceName: r.device_name, model: r.model, type: r.type, oldValue: r.old_value, newValue: r.new_value, note: r.note, ts: r.ts, auto: !!r.auto }));
+    const counts = Object.fromEntries(this.db.prepare('SELECT type, count(*) n FROM maintenance GROUP BY type').all().map((r) => [r.type, r.n]));
+    return { total, page, size, items, counts };
+  }
+
+  addMaintenance(b, now = Date.now()) {
+    const deviceId = String(b?.deviceId ?? '').trim();
+    if (!this.db.prepare('SELECT 1 FROM devices WHERE id = ?').get(deviceId)) throw badRequest('设备不存在');
+    const type = String(b.type ?? '').trim();
+    if (!MAINT_TYPES.includes(type)) throw badRequest(`维保类型应为：${MAINT_TYPES.join(' / ')}`);
+    const ts = b.ts ? toMs(b.ts) : now;
+    const clip = (v) => (v == null || v === '' ? null : String(v).slice(0, 200));
+    let oldValue = clip(b.oldValue);
+    const newValue = clip(b.newValue);
+    if (type === '更换SIM卡') {
+      if (!newValue) throw badRequest('请填写新 ICCID');
+      const cur = this.db.prepare('SELECT iccid FROM devices WHERE id = ?').get(deviceId).iccid;
+      oldValue = oldValue ?? cur ?? null;
+      this.db.prepare('UPDATE devices SET iccid = ? WHERE id = ?').run(newValue, deviceId);
+    }
+    const r = this.db.prepare('INSERT INTO maintenance (device_id, type, old_value, new_value, note, ts, auto) VALUES (?, ?, ?, ?, ?, ?, 0)').run(deviceId, type, oldValue, newValue, clip(b.note), ts);
+    return Number(r.lastInsertRowid);
+  }
+
+  deleteMaintenance(id) {
+    this.db.prepare('DELETE FROM maintenance WHERE id = ?').run(id);
   }
 
   groups() {
@@ -274,59 +444,193 @@ export class QueryService {
 
   // ---------------- 报警 ----------------
 
-  alarms({ deviceId, status, acked, label, type, from, to, page = 1, size = 20 } = {}) {
+  alarmWhere(q = {}) {
     const where = [];
     const args = [];
-    if (deviceId) { where.push('a.device_id = ?'); args.push(deviceId); }
-    if (status === 'open') where.push('a.end_ts IS NULL');
-    if (status === 'closed') where.push('a.end_ts IS NOT NULL');
-    if (acked === '1' || acked === '0') { where.push('a.acked = ?'); args.push(Number(acked)); }
-    if (label) { where.push('a.label = ?'); args.push(label); }
-    if (type !== undefined && type !== '') { where.push('a.type_code = ?'); args.push(Number(type)); }
-    if (from) { where.push('a.start_ts >= ?'); args.push(Number(from) < 1e11 ? Number(from) * 1000 : Number(from)); }
-    if (to) { where.push('a.start_ts <= ?'); args.push(Number(to) < 1e11 ? Number(to) * 1000 : Number(to)); }
-    const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    size = Math.min(500, Math.max(1, Number(size) || 20));
-    page = Math.max(1, Number(page) || 1);
-    const total = this.db.prepare(`SELECT count(*) c FROM alarms a ${w}`).get(...args).c;
-    const items = this.db.prepare(`SELECT a.*, d.name AS device_name, d.type_name, d.location FROM alarms a LEFT JOIN devices d ON d.id = a.device_id ${w} ORDER BY a.id DESC LIMIT ? OFFSET ?`)
-      .all(...args, size, (page - 1) * size).map((r) => ({
-        id: r.id, deviceId: r.device_id, deviceName: r.device_name, typeCode: r.type_code, typeName: r.type_name, location: r.location,
-        bit: r.bit, label: r.label, startTs: r.start_ts, endTs: r.end_ts, open: r.end_ts == null,
-        duration: r.end_ts ? r.end_ts - r.start_ts : Date.now() - r.start_ts,
-        snapshot: json(r.snapshot, {}), thresholds: json(r.thresholds, []), acked: !!r.acked, ackedAt: r.acked_at, note: r.note,
-      }));
-    return { total, page, size, items };
+    if (q.deviceId) { where.push('a.device_id = ?'); args.push(q.deviceId); }
+    if (q.keyword) { where.push('(a.device_id LIKE ? OR d.name LIKE ? OR d.location LIKE ?)'); const k = `%${q.keyword}%`; args.push(k, k, k); }
+    if (q.status === 'open') where.push('a.end_ts IS NULL');
+    if (q.status === 'closed') where.push('a.end_ts IS NOT NULL');
+    if (q.handle !== undefined && q.handle !== '' && q.handle !== 'all') { where.push('a.status = ?'); args.push(Number(q.handle)); }
+    if (q.acked === '1') where.push('a.status > 0');
+    if (q.acked === '0') where.push('a.status = 0');
+    if (q.label) { where.push('a.label = ?'); args.push(q.label); }
+    if (q.level) { where.push('a.level = ?'); args.push(q.level); }
+    if (q.type !== undefined && q.type !== '') { where.push('a.type_code = ?'); args.push(Number(q.type)); }
+    if (q.group) { where.push('d.group_name = ?'); args.push(q.group); }
+    if (q.from) { where.push('a.start_ts >= ?'); args.push(toMs(q.from)); }
+    if (q.to) { where.push('a.start_ts <= ?'); args.push(toMs(q.to)); }
+    return { w: where.length ? `WHERE ${where.join(' AND ')}` : '', args };
+  }
+
+  mapAlarm(r, devMap, now = Date.now()) {
+    const dev = devMap?.get(r.device_id);
+    const tz = this.tzSec * 1000;
+    const day = new Date(r.start_ts + tz).toISOString().slice(0, 10).replace(/-/g, '');
+    return {
+      id: r.id,
+      code: `ALM${day}${String(r.id).padStart(6, '0')}`,
+      deviceId: r.device_id, deviceName: r.device_name, typeCode: r.type_code, typeName: r.type_name, location: r.location,
+      bit: r.bit, label: r.label, level: r.level || 'high',
+      startTs: r.start_ts, endTs: r.end_ts, open: r.end_ts == null,
+      duration: r.end_ts ? r.end_ts - r.start_ts : now - r.start_ts,
+      snapshot: json(r.snapshot, {}), thresholds: json(r.thresholds, []),
+      status: r.status ?? 0, acked: (r.status ?? 0) > 0, handledAt: r.handled_at, ackedAt: r.handled_at, note: r.note,
+      deviceStatus: dev?.status ?? null, deviceRealtime: dev?.realtime ?? null, lat: dev?.lat ?? null, lng: dev?.lng ?? null,
+      owner: dev?.owner ?? null, contact: dev?.contact ?? null,
+    };
+  }
+
+  alarms(q = {}) {
+    const { w, args } = this.alarmWhere(q);
+    const size = Math.min(5000, Math.max(1, Number(q.size) || 20));
+    const page = Math.max(1, Number(q.page) || 1);
+    const total = this.db.prepare(`SELECT count(*) c FROM alarms a LEFT JOIN devices d ON d.id = a.device_id ${w}`).get(...args).c;
+    const rows = this.db.prepare(`SELECT a.*, d.name AS device_name, d.type_name, d.location FROM alarms a LEFT JOIN devices d ON d.id = a.device_id ${w} ORDER BY a.start_ts DESC, a.id DESC LIMIT ? OFFSET ?`)
+      .all(...args, size, (page - 1) * size);
+    const devMap = new Map(this.allDevices().map((d) => [d.id, d]));
+    return { total, page, size, items: rows.map((r) => this.mapAlarm(r, devMap)) };
+  }
+
+  /** 报警汇总：处理状态、严重程度、上下限，以及告警设备数 */
+  alarmSummary() {
+    const s = this.db.prepare(`SELECT count(*) total, sum(status = 0) pending, sum(status = 1) recorded, sum(status = 2) handled,
+      count(DISTINCT CASE WHEN status = 0 THEN device_id END) devices,
+      sum(status = 0 AND level = 'high') high, sum(status = 0 AND level = 'mid') mid, sum(status = 0 AND level = 'low') low,
+      sum(status = 0 AND label LIKE '%高报警') upper, sum(status = 0 AND label LIKE '%低报警') lower,
+      sum(end_ts IS NULL) open
+      FROM alarms`).get();
+    const n = (v) => v ?? 0;
+    return {
+      total: n(s.total), pending: n(s.pending), recorded: n(s.recorded), handled: n(s.handled), devices: n(s.devices), open: n(s.open),
+      levels: { high: n(s.high), mid: n(s.mid), low: n(s.low) },
+      upper: n(s.upper), lower: n(s.lower),
+    };
+  }
+
+  /** 处理报警：status 1 已记录 / 2 已处理（也可退回 0） */
+  handleAlarms(ids, status, note, now = Date.now()) {
+    const list = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Number.isInteger);
+    if (!list.length) throw badRequest('请选择报警');
+    status = Number(status);
+    if (![0, 1, 2].includes(status)) throw badRequest('处理状态应为 0 / 1 / 2');
+    const n = note == null || note === '' ? null : String(note).slice(0, 500);
+    const stmt = this.db.prepare('UPDATE alarms SET status = ?, acked = ?, handled_at = ?, acked_at = ?, note = COALESCE(?, note) WHERE id = ?');
+    this.db.exec('BEGIN');
+    for (const id of list) stmt.run(status, status > 0 ? 1 : 0, status > 0 ? now : null, status > 0 ? now : null, n, id);
+    this.db.exec('COMMIT');
+    return list.length;
   }
 
   ackAlarm(id, note) {
-    this.db.prepare('UPDATE alarms SET acked = 1, acked_at = ?, note = COALESCE(?, note) WHERE id = ?').run(Date.now(), note ?? null, id);
+    const cur = this.db.prepare('SELECT status FROM alarms WHERE id = ?').get(id);
+    this.handleAlarms([id], Math.max(1, cur?.status ?? 1), note);
   }
 
-  ackAll(deviceId) {
-    if (deviceId) this.db.prepare('UPDATE alarms SET acked = 1, acked_at = ? WHERE acked = 0 AND device_id = ?').run(Date.now(), deviceId);
-    else this.db.prepare('UPDATE alarms SET acked = 1, acked_at = ? WHERE acked = 0').run(Date.now());
+  /** 将未处理的报警全部标为已记录（或已处理） */
+  ackAll(deviceId, status = 1, note) {
+    const rows = deviceId
+      ? this.db.prepare('SELECT id FROM alarms WHERE status = 0 AND device_id = ?').all(deviceId)
+      : this.db.prepare('SELECT id FROM alarms WHERE status = 0').all();
+    if (rows.length) this.handleAlarms(rows.map((r) => r.id), status, note);
+    return rows.length;
   }
 
-  // ---------------- 下行命令 ----------------
+  alarmsCsv(q = {}) {
+    const { items } = this.alarms({ ...q, page: 1, size: 5000 });
+    const STATUS = ['未处理', '已记录', '已处理'];
+    const LEVEL = { high: '高', mid: '中', low: '低' };
+    const fmt = (ms) => (ms ? new Date(ms + this.tzSec * 1000).toISOString().replace('T', ' ').slice(0, 19) : '');
+    const esc = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const head = ['告警编号', '设备编号', '设备名称', '设备类型', '安装位置', '告警类型', '级别', '处理状态', '告警时间', '恢复时间', '触发时数据', '处理说明'];
+    const lines = [head.join(',')];
+    for (const a of items) {
+      lines.push([a.code, a.deviceId, a.deviceName, a.typeName, a.location, a.label, LEVEL[a.level], STATUS[a.status], fmt(a.startTs), fmt(a.endTs),
+        Object.entries(a.snapshot).map(([k, v]) => `${k}=${v}`).join(' '), a.note].map(esc).join(','));
+    }
+    return '\ufeff' + lines.join('\n');
+  }
+
+  /** 最近 N 天按报警类型的每日次数 */
+  alarmTrend(days = 30, now = Date.now()) {
+    days = Math.min(366, Math.max(1, Number(days) || 30));
+    const tz = this.config.tzOffsetHours * 3600;
+    const since = this.startOfDay(now, days - 1);
+    const rows = this.db.prepare(`SELECT date(start_ts / 1000 + ${tz}, 'unixepoch') d, label, count(*) n FROM alarms WHERE start_ts >= ? GROUP BY d, label`).all(since);
+    const dates = Array.from({ length: days }, (_, i) => new Date(since + i * 86400000 + tz * 1000).toISOString().slice(0, 10));
+    const totals = new Map();
+    for (const r of rows) totals.set(r.label, (totals.get(r.label) || 0) + r.n);
+    const labels = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([l]) => l);
+    const series = labels.map((label) => {
+      const m = new Map(rows.filter((r) => r.label === label).map((r) => [r.d, r.n]));
+      return { name: label, total: totals.get(label), data: dates.map((d) => m.get(d) ?? 0) };
+    });
+    return { dates, series };
+  }
+
+  // ---------------- 下行命令（远程配置） ----------------
 
   commands(deviceId) {
-    return this.db.prepare('SELECT * FROM commands WHERE device_id = ? ORDER BY id DESC LIMIT 100').all(deviceId).map((r) => ({
-      id: r.id, deviceId: r.device_id, params: r.params_hex, note: r.note, status: r.status, createdAt: r.created_at,
-      sentAt: r.sent_at, sentVia: r.sent_via, ackAt: r.ack_at, ackParams: r.ack_hex,
-    }));
+    return this.commandList({ deviceId, size: 100 }).items;
+  }
+
+  commandList({ deviceId, status, keyword, page = 1, size = 20 } = {}) {
+    const where = [];
+    const args = [];
+    if (deviceId) { where.push('c.device_id = ?'); args.push(deviceId); }
+    if (status) { where.push('c.status = ?'); args.push(status); }
+    if (keyword) { where.push('(c.device_id LIKE ? OR d.name LIKE ? OR c.note LIKE ?)'); const k = `%${keyword}%`; args.push(k, k, k); }
+    const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    size = Math.min(500, Math.max(1, Number(size) || 20));
+    page = Math.max(1, Number(page) || 1);
+    const total = this.db.prepare(`SELECT count(*) c FROM commands c LEFT JOIN devices d ON d.id = c.device_id ${w}`).get(...args).c;
+    const devMap = new Map(this.allDevices().map((d) => [d.id, d]));
+    const items = this.db.prepare(`SELECT c.*, d.name device_name FROM commands c LEFT JOIN devices d ON d.id = c.device_id ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`)
+      .all(...args, size, (page - 1) * size).map((r) => {
+        const dev = devMap.get(r.device_id);
+        return {
+          id: r.id, deviceId: r.device_id, deviceName: r.device_name, typeName: dev?.typeName ?? null, model: dev?.model ?? null,
+          deviceStatus: dev?.status ?? null, lastSeen: dev?.lastSeen ?? null, transport: dev?.transport ?? null,
+          params: r.params_hex, note: r.note, status: r.status, createdAt: r.created_at,
+          sentAt: r.sent_at, sentVia: r.sent_via, ackAt: r.ack_at, ackParams: r.ack_hex,
+        };
+      });
+    const counts = Object.fromEntries(this.db.prepare('SELECT status, count(*) n FROM commands GROUP BY status').all().map((r) => [r.status, r.n]));
+    return { total, page, size, items, counts };
   }
 
   addCommand(deviceId, paramsHex, note) {
     const clean = String(paramsHex || '').replace(/0x/gi, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
-    if (!clean || clean.length % 2) throw Object.assign(new Error('参数设置数据单元必须是偶数长度的十六进制'), { status: 400 });
-    if (clean.length / 2 > 255) throw Object.assign(new Error('参数设置数据单元最多 255 字节'), { status: 400 });
+    if (!clean || clean.length % 2) throw badRequest('参数设置数据单元必须是偶数长度的十六进制');
+    if (clean.length / 2 > 255) throw badRequest('参数设置数据单元最多 255 字节');
     const r = this.db.prepare('INSERT INTO commands (device_id, params_hex, note, created_at) VALUES (?, ?, ?, ?)').run(deviceId, clean, note ?? null, Date.now());
     return Number(r.lastInsertRowid);
   }
 
+  addCommands(deviceIds, paramsHex, note) {
+    const ids = [...new Set((deviceIds || []).map((x) => String(x).trim()).filter(Boolean))];
+    if (!ids.length) throw badRequest('请选择设备');
+    if (ids.length > 1000) throw badRequest('单次最多 1000 台设备');
+    this.db.exec('BEGIN');
+    try {
+      const out = ids.map((id) => this.addCommand(id, paramsHex, note));
+      this.db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   cancelCommand(id) {
-    this.db.prepare("UPDATE commands SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(id);
+    return Number(this.db.prepare("UPDATE commands SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(id).changes);
+  }
+
+  deleteCommands(ids) {
+    const stmt = this.db.prepare("DELETE FROM commands WHERE id = ? AND status IN ('cancelled', 'acked', 'sent')");
+    let n = 0;
+    for (const id of ids || []) n += Number(stmt.run(Number(id)).changes);
+    return n;
   }
 
   // ---------------- 维护 ----------------
@@ -349,7 +653,7 @@ export class QueryService {
     const before = this.dataSummary();
     this.db.exec('BEGIN');
     try {
-      for (const t of ['readings', 'frames', 'alarms', 'commands']) this.db.exec(`DELETE FROM ${t}`);
+      for (const t of ['readings', 'frames', 'alarms', 'commands', 'locations', 'maintenance']) this.db.exec(`DELETE FROM ${t}`);
       if (scope === 'all') this.db.exec('DELETE FROM devices');
       else this.db.exec("UPDATE devices SET frame_count = 0, alarm_raw = 0, alarm_bits = '[]'");
       this.db.exec('COMMIT');

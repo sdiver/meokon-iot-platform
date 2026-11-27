@@ -1,38 +1,51 @@
 :root {
-  --page-bg: #f5f6f8;
+  --page-bg: #f3f5f9;
   --card-bg: #ffffff;
   --ink: #191919;
   --ink-2: #666666;
-  --hair: rgba(11, 11, 11, 0.08);
+  --ink-3: #8a8f98;
+  --hair: rgba(15, 30, 60, 0.08);
+  --hair-strong: rgba(15, 30, 60, 0.16);
   --side-bg: #ffffff;
   --accent: #257de0;
+  --accent-soft: rgba(37, 125, 224, 0.09);
   --good: #0aac23;
+  --good-text: #006c10;
   --warning: #fbb315;
   --serious: #f18a59;
   --critical: #dc3c3d;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.04);
+  --shadow-hover: 0 6px 20px rgba(16, 24, 40, 0.08);
   --el-color-primary: #257de0;
+  --el-border-radius-base: 8px;
   font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: var(--ink);
 }
 html.dark {
-  --page-bg: #111213;
-  --card-bg: #1d1e1f;
+  --page-bg: #0f1114;
+  --card-bg: #1a1c20;
   --ink: #efefef;
   --ink-2: #9c9c9c;
+  --ink-3: #7a7f88;
   --hair: rgba(255, 255, 255, 0.08);
-  --side-bg: #18191a;
+  --hair-strong: rgba(255, 255, 255, 0.16);
+  --side-bg: #15171a;
   --accent: #338ced;
+  --accent-soft: rgba(51, 140, 237, 0.14);
+  --good-text: #53c556;
+  --shadow: none;
+  --shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 * { box-sizing: border-box; }
 html, body, #app { margin: 0; height: 100%; }
 body { background: var(--page-bg); color: var(--ink); }
 
-.page { padding: 20px; max-width: 1600px; margin: 0 auto; }
+.page { padding: 20px 24px; max-width: 1680px; margin: 0 auto; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .page-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
 .page-head .sub { color: var(--ink-2); font-size: 13px; margin-top: 4px; }
 
-.card { background: var(--card-bg); border: 1px solid var(--hair); border-radius: 12px; padding: 16px; min-width: 0; }
+.card { background: var(--card-bg); border: 1px solid var(--hair); border-radius: 14px; padding: 18px; min-width: 0; box-shadow: var(--shadow); }
 .card-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; font-weight: 600; margin-bottom: 12px; }
 .card-title .hint { font-weight: 400; font-size: 12px; color: var(--ink-2); }
 
@@ -101,3 +114,26 @@ a.link:hover { text-decoration: underline; }
   .el-drawer.rtl { width: 100% !important; }
   .el-tabs__item { padding: 0 12px !important; }
 }
+
+/* 区块标题（左侧色条） */
+.sec-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+.sec-title::before { content: ''; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
+.sec-title .hint { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--ink-2); }
+/* 统一的状态标签（颜色 + 文字） */
+.st-tag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; white-space: nowrap; background: var(--page-bg); color: var(--ink-2); }
+.st-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.st-tag.online, .st-tag.good { color: var(--good-text); background: rgba(10, 172, 35, 0.1); }
+.st-tag.alarm, .st-tag.critical { color: var(--critical); background: rgba(220, 60, 61, 0.1); }
+.st-tag.offline { color: #7a7a7a; background: rgba(127, 127, 127, 0.12); }
+.st-tag.inactive { color: #8a8f98; background: transparent; border: 1px dashed var(--hair-strong); }
+.st-tag.warning { color: #a66f00; background: rgba(251, 179, 21, 0.15); }
+.st-tag.recorded { color: #a66f00; background: rgba(251, 179, 21, 0.15); }
+.st-tag.handled { color: var(--good-text); background: rgba(10, 172, 35, 0.1); }
+.st-tag.pending { color: var(--critical); background: rgba(220, 60, 61, 0.1); }
+html.dark .st-tag.warning, html.dark .st-tag.recorded { color: #fbb315; }
+/* 级别徽标 */
+.lv-badge { display: inline-block; min-width: 20px; height: 20px; line-height: 20px; text-align: center; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 600; color: #fff; background: var(--critical); }
+.lv-badge.mid { background: var(--serious); }
+.lv-badge.low { background: var(--warning); color: #3a2a00; }
+.el-table th.el-table__cell { font-weight: 600; color: var(--ink-2); background: var(--card-bg); }
+.thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: var(--page-bg); display: inline-flex; align-items: center; justify-content: center; color: var(--ink-3); flex: none; }

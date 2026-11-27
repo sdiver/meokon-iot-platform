@@ -92,12 +92,83 @@ CREATE TABLE IF NOT EXISTS commands (
 CREATE INDEX IF NOT EXISTS idx_commands_device ON commands(device_id, status);
 `;
 
+/** 报警严重程度：high 越限/安全事件，mid 传感器/硬件异常，low 电量 */
+export const ALARM_LEVEL_SQL = `CASE
+  WHEN label IN ('电量报警') THEN 'low'
+  WHEN label IN ('传感器异常', '硬件异常') THEN 'mid'
+  ELSE 'high' END`;
+
+/** 版本化迁移：已有数据库启动时自动升级 */
+const MIGRATIONS = [
+  // v1：初始结构（SCHEMA）
+  () => {},
+  // v2：设备档案、报警处理流程、设备轨迹、维保记录
+  (db) => {
+    const addCols = (table, cols) => {
+      const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+      for (const [name, def] of cols) if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+    };
+    addCols('devices', [
+      ['model', 'TEXT'], ['alias', 'TEXT'], ['project', 'TEXT'], ['owner', 'TEXT'], ['contact', 'TEXT'],
+      ['asset_no', 'TEXT'], ['imei', 'TEXT'], ['iccid', 'TEXT'], ['hw_version', 'TEXT'], ['sw_version', 'TEXT'],
+      ['comm_type', 'TEXT'], ['photo', 'TEXT'], ['alarm_push', 'INTEGER DEFAULT 1'], ['min_signal', 'INTEGER'],
+      ['created_at', 'INTEGER'],
+    ]);
+    db.exec('UPDATE devices SET created_at = first_seen WHERE created_at IS NULL');
+    // 报警处理状态：0 未处理 / 1 已记录 / 2 已处理
+    addCols('alarms', [['status', 'INTEGER DEFAULT 0'], ['handled_at', 'INTEGER'], ['level', 'TEXT']]);
+    db.exec('UPDATE alarms SET status = 1, handled_at = acked_at WHERE acked = 1 AND status = 0');
+    db.exec(`UPDATE alarms SET level = ${ALARM_LEVEL_SQL} WHERE level IS NULL`);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_alarms_status ON alarms(status, start_ts);
+      CREATE TABLE IF NOT EXISTS locations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        ts INTEGER NOT NULL,            -- 毫秒
+        lat REAL NOT NULL,
+        lng REAL NOT NULL,              -- WGS84
+        source TEXT,                    -- gps | manual
+        address TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_locations_device ON locations(device_id, ts);
+      CREATE TABLE IF NOT EXISTS maintenance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        type TEXT NOT NULL,             -- 更换SIM卡 | 更换电池 | 维修 | 安装 | 其他
+        old_value TEXT,
+        new_value TEXT,
+        note TEXT,
+        ts INTEGER NOT NULL,            -- 毫秒
+        auto INTEGER DEFAULT 0          -- 1 = 平台自动识别
+      );
+      CREATE INDEX IF NOT EXISTS idx_maintenance_device ON maintenance(device_id, ts);
+      CREATE INDEX IF NOT EXISTS idx_maintenance_time ON maintenance(ts);
+    `);
+  },
+];
+
+function migrate(db) {
+  const v = db.prepare('PRAGMA user_version').get().user_version;
+  for (let i = v; i < MIGRATIONS.length; i++) {
+    db.exec('BEGIN');
+    try {
+      MIGRATIONS[i](db);
+      db.exec(`PRAGMA user_version = ${i + 1}`);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+}
+
 /** @returns {DatabaseSync} */
 export function openDatabase(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
