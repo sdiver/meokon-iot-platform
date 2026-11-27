@@ -27,8 +27,15 @@ export const SETTING_GROUPS = [
 export const SETTING_DEFS = [
   { key: 'platformName', group: 'display', label: '平台名称', type: 'string', apply: 'runtime', required: true },
   { key: 'screenTitle', group: 'display', label: '数据大屏标题', type: 'string', apply: 'runtime', required: true },
-  { key: 'mapProvider', group: 'display', label: '地图底图', ...select([['amap', '高德地图'], ['osm', 'OpenStreetMap'], ['custom', '自定义瓦片']]), apply: 'runtime' },
+  { key: 'mapProvider', group: 'display', label: '地图底图', ...select([
+    ['amap', '高德地图（国内推荐）'], ['amap_sat', '高德卫星图'], ['tianditu_vec', '天地图（需申请 Key）'], ['tianditu_img', '天地图影像（需申请 Key）'],
+    ['esri_street', 'Esri 街道图'], ['esri_img', 'Esri 卫星影像'], ['osm', 'OpenStreetMap'], ['custom', '自定义瓦片'],
+  ]), apply: 'runtime', help: '所有地图均可在右下角切换“地图 / 卫星”；底图无法访问时自动回退到高德地图' },
+  { key: 'mapTiandituKey', group: 'display', label: '天地图 Key', type: 'string', apply: 'runtime', placeholder: '浏览器端 Key', help: '在 lbs.tianditu.gov.cn 免费申请“浏览器端”Key；未填写时天地图选项回退为高德' },
   { key: 'mapTileUrl', group: 'display', label: '自定义瓦片地址', type: 'string', apply: 'runtime', placeholder: 'https://.../{z}/{x}/{y}.png', help: '仅“自定义瓦片”时使用，支持 {s} {z} {x} {y}；坐标按 WGS84 处理' },
+  { key: 'mapScreenStyle', group: 'display', label: '数据大屏底图', ...select([
+    ['esri_dark', 'Esri 深色底图'], ['night', '当前底图 + 夜间滤镜'], ['esri_img', 'Esri 卫星影像'],
+  ]), apply: 'runtime' },
   { key: 'mapCenterLng', group: 'display', label: '默认中心经度', ...num(-180, 180), apply: 'runtime', help: '无设备坐标时地图的默认中心（WGS84）' },
   { key: 'mapCenterLat', group: 'display', label: '默认中心纬度', ...num(-90, 90), apply: 'runtime' },
   { key: 'mapZoom', group: 'display', label: '默认缩放级别', ...int(3, 18), apply: 'runtime' },

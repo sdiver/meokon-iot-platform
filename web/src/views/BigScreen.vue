@@ -69,7 +69,7 @@
             </div>
           </div>
           <div class="panel map-panel grow">
-            <DeviceMap :devices="devices" :types="types" theme="dark" height="100%" :zoom-control="false" @detail="(d) => openDevice(d.id)" />
+            <DeviceMap :devices="devices" :types="types" theme="dark" height="100%" :zoom-control="false" :basemap="screenBasemap" @detail="(d) => openDevice(d.id)" />
           </div>
         </section>
 
@@ -137,6 +137,8 @@ const stats = ref(null);
 const trend = ref([]);
 const types = ref(new Map());
 const paused = ref(false);
+/** 大屏底图：night 表示沿用系统底图并加夜间滤镜 */
+const screenBasemap = computed(() => (ui.map.screenStyle && ui.map.screenStyle !== 'night' ? ui.map.screenStyle : ''));
 
 // 1920×1080 设计稿等比缩放铺满屏幕
 const W = 1920;

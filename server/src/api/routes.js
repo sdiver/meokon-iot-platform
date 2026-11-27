@@ -65,7 +65,10 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
     platformName: config.platformName,
     screenTitle: config.screenTitle,
     tzOffsetHours: config.tzOffsetHours,
-    map: { provider: config.mapProvider, tileUrl: config.mapTileUrl, center: [config.mapCenterLat, config.mapCenterLng], zoom: config.mapZoom },
+    map: {
+      provider: config.mapProvider, tileUrl: config.mapTileUrl, tiandituKey: config.mapTiandituKey, screenStyle: config.mapScreenStyle,
+      center: [config.mapCenterLat, config.mapCenterLng], zoom: config.mapZoom,
+    },
   }));
   api.post('/settings/notify-test', wrap(async (req, res) => res.json(await notify.test())));
 

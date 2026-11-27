@@ -59,6 +59,8 @@ export const config = {
   screenTitle: env.SCREEN_TITLE || '设备监测数据大屏',
   mapProvider: env.MAP_PROVIDER || 'amap',
   mapTileUrl: env.MAP_TILE_URL || '',
+  mapTiandituKey: env.MAP_TIANDITU_KEY || '',
+  mapScreenStyle: env.MAP_SCREEN_STYLE || 'esri_dark',
   mapCenterLng: num(env.MAP_CENTER_LNG, 121.4737),
   mapCenterLat: num(env.MAP_CENTER_LAT, 31.2304),
   mapZoom: num(env.MAP_ZOOM, 12),

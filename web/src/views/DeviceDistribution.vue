@@ -1,6 +1,7 @@
 <template>
   <div class="dist">
     <DeviceMap ref="mapRef" :devices="shown" :types="types" height="100%" :legend="false" :zoom-control="!isMobile"
+      :fit-padding="isMobile ? [90, 30, 160, 30] : [110, 40, 40, 410]"
       @select="(d) => (selected = d.id)" @detail="(d) => $router.push(`/devices/${d.id}`)" />
 
     <div class="kpis">

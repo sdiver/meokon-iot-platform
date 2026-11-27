@@ -110,7 +110,7 @@ export const ui = reactive({
   platformName: '物联网设备监测平台',
   screenTitle: '设备监测数据大屏',
   tzOffsetHours: 8,
-  map: { provider: 'amap', tileUrl: '', center: [31.2304, 121.4737], zoom: 12 },
+  map: { provider: 'amap', tileUrl: '', tiandituKey: '', screenStyle: 'esri_dark', center: [31.2304, 121.4737], zoom: 12 },
 });
 export async function loadUiConfig() {
   try {

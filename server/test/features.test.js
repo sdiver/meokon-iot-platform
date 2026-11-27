@@ -16,7 +16,7 @@ const config = {
   dbFile: ':memory:', frameRetentionDays: 0, readingRetentionDays: 0,
   maxClockSkewSec: 3600, offlineMinSec: 1800, offlineFactor: 2.5, tzOffsetHours: 8,
   authToken: '', pushToken: '', webDist: '/nonexistent',
-  platformName: '测试平台', screenTitle: '测试大屏', mapProvider: 'amap', mapTileUrl: '', mapCenterLng: 121.47, mapCenterLat: 31.23, mapZoom: 12,
+  platformName: '测试平台', screenTitle: '测试大屏', mapProvider: 'amap', mapTileUrl: '', mapTiandituKey: '', mapScreenStyle: 'esri_dark', mapCenterLng: 121.47, mapCenterLat: 31.23, mapZoom: 12,
   notifyEnabled: false, notifyType: 'wecom', notifyUrl: '', notifySecret: '', notifyRecover: false, photoDir: '',
 };
 
@@ -210,7 +210,11 @@ test('界面配置与选择类设置校验', async () => {
   const ui = (await api('/ui-config')).body;
   assert.equal(ui.platformName, '测试平台');
   assert.equal(ui.map.provider, 'amap');
+  assert.equal(ui.map.screenStyle, 'esri_dark');
   assert.equal((await api('/settings', { method: 'PUT', body: { mapProvider: 'google' } })).status, 400);
+  assert.equal((await api('/settings', { method: 'PUT', body: { mapProvider: 'esri_img', mapTiandituKey: 'abc123' } })).status, 200);
+  assert.equal((await api('/ui-config')).body.map.tiandituKey, 'abc123');
+  await api('/settings/reset', { method: 'POST', body: { keys: ['mapTiandituKey'] } });
   assert.equal((await api('/settings', { method: 'PUT', body: { notifyUrl: 'ftp://x' } })).status, 400);
   await api('/settings', { method: 'PUT', body: { mapProvider: 'osm', platformName: '新名称' } });
   assert.equal((await api('/ui-config')).body.platformName, '新名称');

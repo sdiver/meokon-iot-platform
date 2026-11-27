@@ -22,7 +22,9 @@
 - **系统设置**：接入端口、MQTT、平台名称、大屏标题、地图底图（高德 / OSM / 自定义瓦片）、在线判定、数据保留、访问令牌、告警推送等均可在页面修改并即时生效；数据管理可清空演示数据
 - **手机适配**：底部导航 + 卡片列表布局，可“添加到主屏幕”像 App 一样使用；支持深色模式
 
-> 地图坐标统一以 WGS84 存储（与 GPS 一致）；使用高德底图时自动换算为 GCJ-02 显示，地图选点时自动换算回 WGS84。
+- **公开 GIS 底图**：高德地图 / 高德卫星、天地图矢量 / 影像（需免费申请浏览器端 Key）、Esri 街道图 / 卫星影像 / 深色底图、OpenStreetMap、自定义瓦片；所有地图右下角可切换“地图 / 卫星”，数据大屏默认使用 Esri 深色底图；底图无法访问时自动回退（卫星 → Esri 影像，其他 → 高德）
+
+> 地图坐标统一以 WGS84 存储（与 GPS 一致）；使用高德（GCJ-02）底图时自动换算显示，地图选点时自动换算回 WGS84；天地图、Esri、OSM 直接使用 WGS84。
 
 ## 快速开始
 
@@ -106,7 +108,9 @@ docker compose up -d --build
 | `OFFLINE_MIN_SEC` / `OFFLINE_FACTOR` | 1800 / 2.5 | 离线判定：超过 max(最小值, 上报周期 × 系数) 未上报 |
 | `TZ_OFFSET_HOURS` | 8 | 统计按日分组使用的时区 |
 | `PLATFORM_NAME` / `SCREEN_TITLE` | 物联网设备监测平台 / 设备监测数据大屏 | 平台名称、大屏标题 |
-| `MAP_PROVIDER` / `MAP_TILE_URL` | amap / 空 | 地图底图：amap、osm、custom（自定义瓦片地址） |
+| `MAP_PROVIDER` / `MAP_TILE_URL` | amap / 空 | 地图底图：amap、amap_sat、tianditu_vec、tianditu_img、esri_street、esri_img、osm、custom |
+| `MAP_TIANDITU_KEY` | 空 | 天地图浏览器端 Key（lbs.tianditu.gov.cn 免费申请） |
+| `MAP_SCREEN_STYLE` | esri_dark | 数据大屏底图：esri_dark、night（当前底图 + 夜间滤镜）、esri_img |
 | `MAP_CENTER_LNG` / `MAP_CENTER_LAT` / `MAP_ZOOM` | 121.4737 / 31.2304 / 12 | 无设备坐标时的默认视野 |
 | `NOTIFY_ENABLED` / `NOTIFY_TYPE` / `NOTIFY_URL` / `NOTIFY_SECRET` | false / wecom / 空 / 空 | 告警推送（wecom、dingtalk、feishu、webhook） |
 | `PHOTO_DIR` | 数据库同目录 `photos/` | 设备照片存放目录 |

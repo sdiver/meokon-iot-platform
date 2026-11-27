@@ -21,6 +21,7 @@ import 'leaflet/dist/leaflet.css';
 import { ui } from '../api.js';
 import { wgs84ToGcj02, gcj02ToWgs84 } from '../utils/geo.js';
 import { fmtParam, fmtAgo } from '../utils/format.js';
+import { resolveBasemap, createBasemapLayer, satelliteOf, streetOf } from '../utils/basemaps.js';
 
 const props = defineProps({
   devices: { type: Array, default: () => [] },
@@ -33,6 +34,9 @@ const props = defineProps({
   legend: { type: Boolean, default: true },
   popup: { type: Boolean, default: true },
   zoomControl: { type: Boolean, default: true },
+  basemap: { type: String, default: '' }, // 指定底图（如大屏使用深色底图），为空则用系统设置
+  layerSwitch: { type: Boolean, default: true }, // 显示“地图 / 卫星”切换
+  fitPadding: { type: Array, default: () => [30, 30, 30, 30] }, // 自适应视野时的留白 [上, 右, 下, 左]
 });
 const emit = defineEmits(['select', 'pick', 'detail']);
 
@@ -53,22 +57,83 @@ const STATUS = {
   inactive: { text: '未上线', cls: 'inactive' },
 };
 
-const gcj = computed(() => (ui.map.provider || 'amap') === 'amap');
+// 当前底图：系统设置 → 组件指定 → 用户切换卫星 → 加载失败时回退高德
+const baseKey = ref('');
+const satOn = ref(false);
+const fallbackKey = ref('');
+const cfg = () => ({ tileUrl: ui.map.tileUrl, tiandituKey: ui.map.tiandituKey });
+const activeKey = computed(() => {
+  if (fallbackKey.value) return fallbackKey.value;
+  const k = baseKey.value || props.basemap || ui.map.provider || 'amap';
+  if (satOn.value) return satelliteOf(k) || k;
+  return k;
+});
+const bm = computed(() => resolveBasemap(activeKey.value, cfg()));
+const hasSatellite = computed(() => Boolean(satelliteOf(resolveBasemap(props.basemap || ui.map.provider || 'amap', cfg()).key) || streetOf(props.basemap || ui.map.provider)));
+const gcj = computed(() => bm.value.gcj);
 const toMap = (lat, lng) => (gcj.value ? wgs84ToGcj02(lat, lng) : [lat, lng]);
 const fromMap = (lat, lng) => (gcj.value ? gcj02ToWgs84(lat, lng) : [lat, lng]);
+/** 深色主题下，没有自带深色样式的底图加夜间滤镜 */
+const nightFilter = computed(() => props.theme === 'dark' && !bm.value.dark && !satOn.value);
 
 const located = computed(() => props.devices.filter((d) => d.lat != null && d.lng != null).length);
 const legendItems = computed(() => ['online', 'alarm', 'offline', 'inactive']
   .map((k) => ({ key: k, text: STATUS[k].text, count: props.devices.filter((d) => d.status === k && d.lat != null).length }))
   .filter((s) => s.count || s.key !== 'inactive'));
 
-function tileLayer() {
-  const p = ui.map.provider || 'amap';
-  if (p === 'osm') return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
-  if (p === 'custom' && ui.map.tileUrl) return L.tileLayer(ui.map.tileUrl, { maxZoom: 19, subdomains: 'abc' });
-  return L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-    subdomains: '1234', maxZoom: 18, attribution: '© 高德地图',
+function applyBasemap() {
+  if (!map.value) return;
+  const wasGcj = tiles?._gcj;
+  tiles?.remove();
+  const key = bm.value.key;
+  tiles = createBasemapLayer(bm.value, cfg(), () => {
+    // 底图无法访问：卫星影像回退到 Esri 影像，其他回退到高德（备用也失败则保持现状）
+    const next = satOn.value ? (key !== 'esri_img' ? 'esri_img' : null) : (key !== 'amap' ? 'amap' : null);
+    if (next && fallbackKey.value !== next) {
+      console.warn(`[map] 底图 ${bm.value.name} 无法加载，已切换为备用底图 ${next}`);
+      fallbackKey.value = next;
+    }
   });
+  tiles._gcj = gcj.value;
+  tiles.addTo(map.value);
+  el.value?.classList.toggle('night', nightFilter.value);
+  // 坐标系变化时重新放置标记与轨迹
+  if (wasGcj !== undefined && wasGcj !== gcj.value) {
+    const c = map.value.getCenter();
+    const [wl, wn] = wasGcj ? gcj02ToWgs84(c.lat, c.lng) : [c.lat, c.lng];
+    map.value.setView(toMap(wl, wn), map.value.getZoom(), { animate: false });
+    for (const m of markers.values()) m.setLatLng(toMap(m._dev.lat, m._dev.lng));
+    if (pickMarker) { pickMarker.remove(); pickMarker = null; renderPick(); }
+    if (props.track?.length) renderTrack();
+  }
+}
+
+/** “地图 / 卫星”切换控件 */
+let switchCtl = null;
+function addSwitch() {
+  if (!props.layerSwitch || !hasSatellite.value || switchCtl) return;
+  const Ctl = L.Control.extend({
+    onAdd() {
+      const box = L.DomUtil.create('div', 'dm-switch');
+      L.DomEvent.disableClickPropagation(box);
+      const mk = (text, sat) => {
+        const b = L.DomUtil.create('button', '', box);
+        b.type = 'button';
+        b.textContent = text;
+        b.setAttribute('aria-pressed', String(satOn.value === sat));
+        b.onclick = () => {
+          satOn.value = sat;
+          fallbackKey.value = '';
+          [...box.children].forEach((x, i) => x.setAttribute('aria-pressed', String((i === 1) === sat)));
+        };
+        return b;
+      };
+      mk('地图', false);
+      mk('卫星', true);
+      return box;
+    },
+  });
+  switchCtl = new Ctl({ position: 'bottomright' }).addTo(map.value);
 }
 
 function icon(d) {
@@ -165,8 +230,9 @@ function fitAll() {
   const pts = [...markers.values()].map((m) => m.getLatLng());
   if (!pts.length || !map.value) return;
   map.value.invalidateSize();
+  const [t, r, b, l] = props.fitPadding;
   if (pts.length === 1) map.value.setView(pts[0], 15);
-  else map.value.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 16 });
+  else map.value.fitBounds(L.latLngBounds(pts), { maxZoom: 16, paddingTopLeft: [l, t], paddingBottomRight: [r, b] });
 }
 
 function renderPick() {
@@ -213,7 +279,8 @@ function init() {
     const zc = L.control.zoom({ position: 'bottomright', zoomInTitle: '放大', zoomOutTitle: '缩小' }).addTo(map.value);
     zc.getContainer().addEventListener('click', () => { userMoved = true; });
   }
-  tiles = tileLayer().addTo(map.value);
+  addSwitch();
+  applyBasemap();
   layer = L.layerGroup().addTo(map.value);
   // 用户拖动 / 滚轮 / 点击缩放后不再自动适配视野
   const markMoved = () => { userMoved = true; };
@@ -247,14 +314,12 @@ onBeforeUnmount(() => {
 });
 
 watch(() => props.devices, render, { deep: false });
+watch(() => props.types, render);
 watch(() => props.pick, renderPick, { deep: true });
 watch(() => props.track, renderTrack);
-watch(() => [ui.map.provider, ui.map.tileUrl], () => {
-  if (!map.value) return;
-  tiles?.remove();
-  tiles = tileLayer().addTo(map.value);
-  for (const m of markers.values()) m.setLatLng(toMap(m._dev.lat, m._dev.lng));
-});
+watch(bm, applyBasemap);
+watch(() => [ui.map.provider, ui.map.tileUrl, ui.map.tiandituKey], () => { fallbackKey.value = ''; });
+watch(hasSatellite, (v) => { if (v) addSwitch(); });
 
 /** 定位到某台设备并打开弹窗 */
 function focus(id, zoom = 16) {
@@ -274,7 +339,14 @@ defineExpose({ focus, fitAll });
 .dmap.theme-light .dmap-canvas { background: #eef2f6 repeating-linear-gradient(0deg, transparent 0 39px, rgba(0, 0, 0, 0.035) 39px 40px), repeating-linear-gradient(90deg, transparent 0 39px, rgba(0, 0, 0, 0.035) 39px 40px); }
 .dmap.theme-dark .dmap-canvas { background: #0a1628 repeating-linear-gradient(0deg, transparent 0 39px, rgba(90, 160, 255, 0.05) 39px 40px), repeating-linear-gradient(90deg, transparent 0 39px, rgba(90, 160, 255, 0.05) 39px 40px); }
 /* 深色主题：底图反色处理，形成夜间风格 */
-.dmap.theme-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(195deg) brightness(0.78) contrast(0.92) saturate(0.55); }
+.dmap-canvas.night .leaflet-tile-pane { filter: invert(1) hue-rotate(195deg) brightness(0.78) contrast(0.92) saturate(0.55); }
+/* 地图 / 卫星切换 */
+.dm-switch { display: flex; background: #fff; border-radius: 8px; box-shadow: 0 1px 5px rgba(0, 0, 0, 0.25); overflow: hidden; }
+.dm-switch button { border: 0; background: transparent; font: inherit; font-size: 12px; padding: 6px 12px; cursor: pointer; color: #444; }
+.dm-switch button[aria-pressed='true'] { background: #257de0; color: #fff; }
+.dmap.theme-dark .dm-switch { background: rgba(9, 24, 48, 0.9); border: 1px solid rgba(90, 160, 255, 0.35); }
+.dmap.theme-dark .dm-switch button { color: #9fc1ec; }
+.dmap.theme-dark .leaflet-bar a { background: rgba(9, 24, 48, 0.9); color: #9fc1ec; border-color: rgba(90, 160, 255, 0.25); }
 .dmap.picking .dmap-canvas { cursor: crosshair; }
 .dmap .leaflet-control-attribution { font-size: 10px; background: rgba(255, 255, 255, 0.6); }
 .dmap.theme-dark .leaflet-control-attribution { background: rgba(0, 0, 0, 0.35); color: #7f95b5; }
