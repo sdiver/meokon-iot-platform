@@ -11,6 +11,11 @@
     "dev:web": "npm --prefix web run dev",
     "test": "npm --prefix server test",
     "seed": "npm --prefix server run seed",
-    "simulate": "npm --prefix server run simulate --"
+    "simulate": "npm --prefix server run simulate --",
+    "vercel:local": "node scripts/vercel-local.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": "22.x"
   }
 }

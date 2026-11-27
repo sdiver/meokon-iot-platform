@@ -75,6 +75,22 @@ Docker：
 docker compose up -d --build
 ```
 
+## 部署到 Vercel（在线演示版）
+
+Vercel 是无服务器平台，不能长期监听 TCP / UDP / MQTT 端口，也没有持久磁盘，因此部署的是**在线演示版**：
+
+- 完整的 Web 界面与全部页面，演示数据（28 台设备、7 天历史）在每个实例启动时自动生成，之后按时间持续模拟设备上报
+- 登录页提供演示账号一键登录（admin / zhanggong / wanggong / leader，密码 `Demo1234`）
+- 用户、项目、密码与系统设置为只读；告警处理、设备编辑等可操作，但实例回收后会恢复为初始演示数据
+- 设备 TCP / UDP / MQTT 接入不可用（HTTP 推送接口可用）。**接入真实设备请使用服务器部署（Docker）**
+
+部署步骤：在 [vercel.com/new](https://vercel.com/new) 导入本 GitHub 仓库，保持默认设置直接 Deploy 即可（构建配置见 `vercel.json`，入口为 `api/index.js`）。
+可选环境变量：`SESSION_SECRET`（登录令牌签名密钥，建议设置为随机字符串）、`DEMO_PASSWORD`（演示账号密码）、`DEMO_DAYS`（历史天数）。
+
+本地模拟 Vercel 运行：`npm run build && npm run vercel:local`，打开 http://localhost:3000 。
+
+> 注意：`*.vercel.app` 域名在中国大陆访问不稳定，同事在国内时建议在 Vercel 绑定自己的域名，或直接使用云服务器部署。
+
 ## 端口与接入方式
 
 | 方式 | 默认地址 | 说明 |
@@ -121,6 +137,8 @@ docker compose up -d --build
 | `MAP_CENTER_LNG` / `MAP_CENTER_LAT` / `MAP_ZOOM` | 121.4737 / 31.2304 / 12 | 无设备坐标时的默认视野 |
 | `NOTIFY_ENABLED` / `NOTIFY_TYPE` / `NOTIFY_URL` / `NOTIFY_SECRET` | false / wecom / 空 / 空 | 告警推送（wecom、dingtalk、feishu、webhook） |
 | `PHOTO_DIR` | 数据库同目录 `photos/` | 设备照片存放目录 |
+| `SESSION_SECRET` | 空 | 设置后使用签名令牌登录（多实例部署无需共享会话） |
+| `DEMO_MODE` | false | 演示环境：登录页显示演示账号，用户 / 项目 / 系统设置只读 |
 | `ADMIN_PASSWORD` | admin123 | 初始管理员 admin 的密码（仅在没有可用管理员时创建） |
 | `AUTH_TOKEN` | 空 | API 访问令牌：第三方系统以 `Authorization: Bearer 令牌` 调用接口，拥有管理员权限 |
 | `LOGIN_SLOGAN` / `COPYRIGHT` / `ICP_NO` | — | 登录页标语、版权信息、ICP 备案号 |

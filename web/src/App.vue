@@ -7,7 +7,7 @@
     <header class="m-header">
       <el-button v-if="canBack" text :icon="Icons.ArrowLeft" class="m-back" aria-label="返回" @click="$router.back()" />
       <span v-else class="m-logo"><Logo :size="24" /></span>
-      <div class="m-title">{{ $route.meta.title }}</div>
+      <div class="m-title">{{ $route.meta.title }}<span v-if="ui.demo" class="demo-tag sm">演示</span></div>
       <button class="icon-btn" :aria-label="soundOn ? '关闭报警提示音' : '开启报警提示音'" @click="toggleSound">
         <el-icon :size="18"><component :is="soundOn ? Icons.Bell : Icons.MuteNotification" /></el-icon>
       </button>
@@ -100,6 +100,7 @@
     <el-container class="main-wrap">
       <el-header class="header">
         <el-button text :icon="collapsed ? Icons.Expand : Icons.Fold" @click="collapsed = !collapsed" aria-label="折叠菜单" />
+        <span v-if="ui.demo" class="demo-tag" title="演示数据为模拟生成；用户、项目与系统设置为只读">演示环境</span>
         <div class="crumb">
           <span v-if="crumbGroup" class="crumb-group">{{ crumbGroup }}</span>
           <span v-if="crumbGroup" class="crumb-sep">/</span>
@@ -286,6 +287,8 @@ onBeforeUnmount(() => clearInterval(timer));
 .el-sub-menu .badge { margin-right: 22px; }
 .main-wrap { min-width: 0; }
 .header { height: 60px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--hair); background: var(--card-bg); padding: 0 16px 0 10px; }
+.demo-tag { font-size: 11px; padding: 1px 8px; border-radius: 9px; background: rgba(244, 114, 48, 0.12); color: #d4561c; font-weight: 600; white-space: nowrap; margin-right: 4px; }
+.demo-tag.sm { margin-left: 6px; vertical-align: 2px; }
 .crumb { font-weight: 600; font-size: 15px; display: flex; gap: 8px; align-items: center; }
 .crumb-group { color: var(--ink-2); font-weight: 400; }
 .crumb-sep { color: var(--hair-strong); font-weight: 400; }

@@ -6,6 +6,7 @@ import { buildDownlink, READ_ALL_CONFIG } from '../protocol/encoder.js';
 import { listDeviceTypes } from '../protocol/deviceTypes.js';
 import { requestContext, currentUser, currentScope } from '../services/scope.js';
 import { ROLES } from '../services/auth.js';
+import { DEMO_ACCOUNTS } from '../demo/demoData.js';
 
 const wrap = (fn) => (req, res, next) => {
   try {
@@ -71,6 +72,15 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
     const scope = auth.scopeOf(user, selected || null);
     requestContext.run({ user, scope, token }, next);
   });
+
+  // 演示环境：账号、密码、系统设置等全局操作不开放（多实例下无法保持一致）
+  if (config.demoMode) {
+    api.use((req, res, next) => {
+      const blocked = req.method !== 'GET' && (/^\/(settings|admin|users)(\/|$)/.test(req.path) || req.path === '/auth/password' || /^\/projects(\/|$)/.test(req.path));
+      if (blocked) return res.status(403).json({ error: '演示环境不支持此操作（用户、项目、密码与系统设置为只读）', code: 'DEMO' });
+      next();
+    });
+  }
 
   api.post('/auth/login', wrap((req, res) => {
     const r = auth.login(req.body || {}, { ip: req.ip, userAgent: req.get('user-agent') });
@@ -146,6 +156,7 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
     platformName: config.platformName,
     screenTitle: config.screenTitle,
     login: { slogan: config.loginSlogan, copyright: config.copyright, icp: config.icpNo },
+    demo: config.demoMode ? { password: config.demoPassword, accounts: DEMO_ACCOUNTS } : null,
     tzOffsetHours: config.tzOffsetHours,
     map: {
       provider: config.mapProvider, tileUrl: config.mapTileUrl, tiandituKey: config.mapTiandituKey, screenStyle: config.mapScreenStyle,
@@ -437,8 +448,10 @@ export function createApi({ config, ingest, query, stats, bus, transports, setti
     const handlers = { frame: send('frame'), alarm: send('alarm'), command: send('command') };
     for (const [e, h] of Object.entries(handlers)) bus.on(e, h);
     const ping = setInterval(() => res.write(': ping\n\n'), 20000);
+    const maxLife = config.streamMaxMs ? setTimeout(() => res.end(), config.streamMaxMs) : null;
     req.on('close', () => {
       clearInterval(ping);
+      if (maxLife) clearTimeout(maxLife);
       for (const [e, h] of Object.entries(handlers)) bus.off(e, h);
     });
   });

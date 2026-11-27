@@ -186,6 +186,30 @@ test('已有普通用户但没有管理员时仍会创建初始管理员', async
   db.close();
 });
 
+test('签名令牌：跨实例有效，篡改或改密后失效', async () => {
+  const { openDatabase } = await import('../src/db/index.js');
+  const { AuthService, hashPassword: hp } = await import('../src/services/auth.js');
+  const mk = (demoMode) => {
+    const db = openDatabase(':memory:');
+    db.prepare("INSERT INTO users (username, role, password_hash, created_at) VALUES ('u1', 'viewer', ?, 0)").run(hp('Pass1234'));
+    return new AuthService(db, { sessionSecret: 'sec', demoMode, adminPassword: 'Admin1234' }, null);
+  };
+  // 演示环境：两个独立实例（数据库不同）之间令牌通用
+  const a = mk(true);
+  const b = mk(true);
+  const t = a.login({ username: 'u1', password: 'Pass1234' }, {}).token;
+  assert.ok(t.startsWith('s1.'));
+  assert.equal(b.userByToken(t)?.username, 'u1');
+  assert.equal(b.userByToken(t.slice(0, -2) + 'xx'), null, '篡改签名');
+  assert.equal(mk(true).userByToken(t.replace('.u1'.replace('u1', Buffer.from('u1').toString('base64url')), '.' + Buffer.from('admin').toString('base64url'))), null, '换用户名');
+  // 正式环境：修改密码后旧令牌失效
+  const c = mk(false);
+  const t2 = c.login({ username: 'u1', password: 'Pass1234' }, {}).token;
+  assert.ok(c.userByToken(t2));
+  c.changePassword(c.userByToken(t2).id, 'Pass1234', 'Pass5678x', t2);
+  assert.equal(c.userByToken(t2), null);
+});
+
 test('退出登录后令牌失效', async () => {
   const t = (await login('admin', 'Admin2026x')).body.token;
   assert.equal((await call('/auth/me', { token: t })).status, 200);

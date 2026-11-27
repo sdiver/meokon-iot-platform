@@ -142,6 +142,7 @@ export const ui = reactive({
   tzOffsetHours: 8,
   map: { provider: 'amap', tileUrl: '', tiandituKey: '', screenStyle: 'esri_dark', center: [31.2304, 121.4737], zoom: 12 },
   login: { slogan: '', copyright: '', icp: '' },
+  demo: null,
 });
 export async function loadUiConfig() {
   try {

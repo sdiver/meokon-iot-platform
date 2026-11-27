@@ -54,6 +54,13 @@ export const config = {
   /** 第三方平台推送接口的校验 token（OneNET / AEP），为空不校验 */
   pushToken: env.PUSH_TOKEN || '',
 
+  /** 演示环境：开启后账号、项目与系统设置只读，登录页显示演示账号 */
+  demoMode: bool(env.DEMO_MODE, false),
+  demoPassword: env.DEMO_PASSWORD || 'Demo1234',
+  /** 设置后使用签名令牌（无状态会话），适用于多实例部署 */
+  sessionSecret: env.SESSION_SECRET || '',
+  /** SSE 连接最长保持时间（毫秒），0 表示不限；无服务器环境需设置 */
+  streamMaxMs: num(env.STREAM_MAX_MS, 0),
   /** 初始管理员 admin 的密码（仅在没有任何用户时使用；默认 admin123，首次登录强制修改） */
   adminPassword: env.ADMIN_PASSWORD || '',
   /** 登录页 */

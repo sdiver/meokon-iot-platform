@@ -124,6 +124,15 @@
           <div v-if="error" class="err" role="alert"><el-icon><WarningFilled /></el-icon>{{ error }}</div>
           <el-button type="primary" class="btn" :loading="loading" native-type="submit" @click.prevent="submit">登 录</el-button>
         </el-form>
+        <div v-if="ui.demo" class="demo">
+          <div class="demo-title"><span class="demo-tag">在线演示</span>点击下方账号一键登录（密码 {{ ui.demo.password }}）</div>
+          <button v-for="a in ui.demo.accounts" :key="a.username" type="button" class="demo-acc" :disabled="loading" @click="quick(a.username)">
+            <span class="d-av">{{ a.username.slice(0, 1).toUpperCase() }}</span>
+            <span class="d-txt"><b>{{ a.username }}</b><small>{{ a.roleName }} · {{ a.desc }}</small></span>
+            <el-icon><Right /></el-icon>
+          </button>
+          <div class="demo-note">演示数据为模拟生成，设备实时上报为模拟数据；用户、项目与系统设置为只读。</div>
+        </div>
       </div>
       <footer class="foot">
         <div v-if="ui.login?.copyright">{{ ui.login.copyright }}</div>
@@ -139,7 +148,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { User, Lock, WarningFilled, Connection, Odometer, Bell } from '@element-plus/icons-vue';
+import { User, Lock, WarningFilled, Connection, Odometer, Bell, Right } from '@element-plus/icons-vue';
 import ChangePasswordDialog from '../components/ChangePasswordDialog.vue';
 import { api, ui, loadUiConfig, session, setToken } from '../api.js';
 
@@ -178,6 +187,11 @@ async function submit() {
   } finally {
     loading.value = false;
   }
+}
+function quick(username) {
+  form.username = username;
+  form.password = ui.demo.password;
+  submit();
 }
 function afterLogin() {
   session.mustChange = false;
@@ -237,6 +251,19 @@ function afterLogin() {
 .err { display: flex; align-items: center; gap: 6px; color: #dc3c3d; font-size: 13px; margin: -8px 0 14px; }
 .btn { width: 100%; height: 46px; border-radius: 10px; font-size: 16px; letter-spacing: 6px; border: 0; background: linear-gradient(90deg, #2f8cf0, #1b64be); box-shadow: 0 8px 20px rgba(37, 125, 224, 0.3); }
 .btn:hover { filter: brightness(1.06); }
+.demo { margin-top: 22px; padding-top: 18px; border-top: 1px dashed #e3e7ee; }
+.demo-title { font-size: 13px; color: #555; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.demo-tag { font-size: 11px; padding: 1px 8px; border-radius: 9px; background: rgba(244, 114, 48, 0.12); color: #d4561c; font-weight: 600; }
+.demo-acc {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 6px; border-radius: 10px;
+  border: 1px solid #e8ecf2; background: #fff; cursor: pointer; font: inherit; text-align: left; color: #191919; transition: border-color 0.15s, background 0.15s;
+}
+.demo-acc:hover { border-color: #257de0; background: rgba(37, 125, 224, 0.04); }
+.d-av { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #3b95f5, #1b64be); }
+.d-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.d-txt b { font-size: 13px; }
+.d-txt small { font-size: 12px; color: #8a8f98; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-note { font-size: 12px; color: #9aa1ab; margin-top: 8px; line-height: 1.6; }
 .foot { font-size: 12px; color: #9aa1ab; text-align: center; line-height: 1.8; }
 .foot a { color: inherit; text-decoration: none; }
 

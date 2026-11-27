@@ -83,18 +83,47 @@ export class AuthService {
     }
     if (!u.enabled) throw err(403, '账号已停用，请联系管理员');
     this.failures.delete(key);
-    const token = crypto.randomBytes(32).toString('base64url');
     const ttl = remember ? 7 * 86400000 : 12 * 3600000;
-    this.db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(sha256(token), u.id, now, now + ttl, ip ?? null, clip(userAgent, 200));
+    let token;
+    if (this.config.sessionSecret) {
+      // 无状态令牌：多实例（如 Vercel 无服务器函数）间无需共享会话表；修改密码后旧令牌自动失效
+      token = this.signToken(u, now + ttl);
+    } else {
+      token = crypto.randomBytes(32).toString('base64url');
+      this.db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(sha256(token), u.id, now, now + ttl, ip ?? null, clip(userAgent, 200));
+    }
     this.db.prepare('UPDATE users SET last_login_at = ?, last_login_ip = ? WHERE id = ?').run(now, ip ?? null, u.id);
     this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
     return { token, expiresAt: now + ttl, user: this.publicUser(this.userById(u.id)) };
   }
 
+  /**
+   * 签名令牌：s1.<用户名>.<过期时间>.<签名>。
+   * 正式环境签名包含密码哈希片段，修改密码后旧令牌失效；演示环境各实例的哈希不同（且不允许改密），不绑定密码。
+   */
+  signToken(u, exp) {
+    const name = Buffer.from(u.username).toString('base64url');
+    const bind = this.config.demoMode ? '' : u.password_hash.slice(-24);
+    const sig = crypto.createHmac('sha256', this.config.sessionSecret).update(`${name}.${exp}.${bind}`).digest('base64url');
+    return `s1.${name}.${exp}.${sig}`;
+  }
+
   /** 根据会话令牌取用户；无效返回 null */
   userByToken(token, now = Date.now()) {
     if (!token) return null;
+    if (token.startsWith('s1.')) {
+      if (!this.config.sessionSecret) return null;
+      const [, name, exp, sig] = token.split('.');
+      if (!name || !exp || !sig || Number(exp) < now) return null;
+      const row = this.db.prepare('SELECT id FROM users WHERE username = ?').get(Buffer.from(name, 'base64url').toString());
+      const u = row ? this.userById(row.id) : null;
+      if (!u || !u.enabled) return null;
+      const expect = this.signToken(u, Number(exp)).split('.')[3];
+      const a = Buffer.from(sig);
+      const b = Buffer.from(expect);
+      return a.length === b.length && crypto.timingSafeEqual(a, b) ? u : null;
+    }
     const s = this.db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(sha256(token));
     if (!s || s.expires_at < now) return null;
     const u = this.userById(s.user_id);
